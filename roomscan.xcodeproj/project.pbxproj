@@ -29,9 +29,22 @@
 		9108A3AF2DA20B4E00CE83FE /* roomscanUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = roomscanUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		91DC38F42DDED7A300A9FBE3 /* Exceptions for "roomscan" folder in "roomscan" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9108A3972DA20B4C00CE83FE /* roomscan */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		9108A39A2DA20B4C00CE83FE /* roomscan */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				91DC38F42DDED7A300A9FBE3 /* Exceptions for "roomscan" folder in "roomscan" target */,
+			);
 			path = roomscan;
 			sourceTree = "<group>";
 		};
@@ -400,12 +413,14 @@
 				DEVELOPMENT_TEAM = T3Y5M253T5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = roomscan/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RoomScan;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required to scan rooms using RoomPlan.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportsDocumentBrowser = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -429,12 +444,14 @@
 				DEVELOPMENT_TEAM = T3Y5M253T5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = roomscan/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RoomScan;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Camera access is required to scan rooms using RoomPlan.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportsDocumentBrowser = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

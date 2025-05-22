@@ -2,10 +2,14 @@ import SwiftUI
 import RoomPlan
 
 struct RoomScanningView: View {
+    
     @Environment(\.dismiss) private var dismiss
+    var scanDirectoryURL: URL?
+    
     @State private var capturedRoom: CapturedRoom?
+    @State private var scanURL: URL?
+
     @State private var showingExportSheet = false
-    @State private var exportURL: URL?
     @State private var scanningViewRef: RoomCaptureRepresentableRef? = nil
     
     var onScanComplete: (CapturedRoom) -> Void
@@ -16,7 +20,9 @@ struct RoomScanningView: View {
             RoomCaptureRepresentable(
                 reference: $scanningViewRef,
                 onScanComplete: { capturedRoom in
+                    print("RoomScanningView: RCRepresentable onScanComplete: capturedRoom received.") // Modified log
                     self.capturedRoom = capturedRoom
+                    print("RoomScanningView: self.capturedRoom set. UI should show 'Close' button.") // Modified log
                 },
                 onCancel: {
                     dismiss()
@@ -39,8 +45,11 @@ struct RoomScanningView: View {
                         // Show Done or Export button based on state
                         if capturedRoom == nil {
                             Button("Done") {
+                                print("RoomScanningView: 'Done' button tapped.") // Added log
                                 if let scanningViewRef = scanningViewRef {
                                     scanningViewRef.finishScanning()
+                                } else {
+                                    print("RoomScanningView: ERROR - scanningViewRef is nil on 'Done' tap.") // Added log
                                 }
                             }
                             .padding()
@@ -48,8 +57,13 @@ struct RoomScanningView: View {
                             .background(Color.clear)
                             .fontWeight(Font.Weight.bold)
                         } else {
-                            Button("Export") {
-                                exportRoom()
+                            Button("Close") {
+                                print("RoomScanningView: 'Close' (export) button tapped.") // Added log
+                                if let scanDirectoryURL = scanDirectoryURL {
+                                    finishScan(scanDirectoryURL: scanDirectoryURL)
+                                } else {
+                                    print("RoomScanningView: ERROR - scanDirectoryURL is nil for export.") // Added log
+                                }
                             }
                             .padding()
                             .buttonStyle(PlainButtonStyle())
@@ -64,45 +78,27 @@ struct RoomScanningView: View {
             )
         }
         .navigationBarHidden(true)
-        .sheet(isPresented: $showingExportSheet) {
-            if let exportURL = exportURL {
-                ShareSheet(items: [exportURL])
-            }
+        .onAppear { // Diagnostic print
+            print("RoomScanningView: Appeared. scanDirectoryURL: \(scanDirectoryURL?.path ?? "nil")")
         }
     }
     
-    private func exportRoom() {
-        guard let capturedRoom = capturedRoom else { return }
+    private func finishScan(scanDirectoryURL: URL) {
+        
+        guard let capturedRoom = capturedRoom else { print("RoomScanningView: finishScan - ERROR: capturedRoom is nil."); return } // Modified log
         
         // Create a temporary file URL for the USDZ
-        let temporaryDirectoryURL = FileManager.default.temporaryDirectory
-        let exportURL = temporaryDirectoryURL.appendingPathComponent("room_scan_\(Date().timeIntervalSince1970).usdz")
+        let scanURL = scanDirectoryURL.appendingPathComponent("room_scan_\(Date().timeIntervalSince1970).usdz")
+        print("RoomScanningView: finishScan - Attempting to export to \(scanURL)") // Added log
         
         do {
-            // Export the room to USDZ
-            try capturedRoom.export(to: exportURL)
-            self.exportURL = exportURL
-            self.showingExportSheet = true
-            
-            // Also call the completion handler
-            onScanComplete(capturedRoom)
+            try capturedRoom.export(to: scanURL)
+            print("RoomScanningView: finishScan - Export successful.") // Added log
+            onScanComplete(capturedRoom) // This is the view's onScanComplete property
+            print("RoomScanningView: finishScan - Called parent onScanComplete.") // Added log
         } catch {
-            print("Failed to export room: \(error)")
+            print("RoomScanningView: finishScan - Failed to export room: \(error)") // Modified log
         }
-    }
-}
-
-// A share sheet to export the USDZ file
-struct ShareSheet: UIViewControllerRepresentable {
-    var items: [Any]
-    
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
-        return controller
-    }
-    
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
-        // Nothing to update
     }
 }
 
@@ -111,6 +107,7 @@ class RoomCaptureRepresentableRef {
     var captureView: RoomCaptureView?
     
     func finishScanning() {
+        print("RoomCaptureRepresentableRef: finishScanning() called, calling captureSession.stop().") // Modified log
         captureView?.captureSession.stop()
     }
 }
@@ -128,7 +125,10 @@ struct RoomCaptureRepresentable: UIViewRepresentable {
         // Create and assign the reference
         let ref = RoomCaptureRepresentableRef()
         ref.captureView = roomCaptureView
-        self.reference = ref
+        // Update reference binding. DispatchQueue.main.async can be safer for @Binding updates from makeUIView.
+        DispatchQueue.main.async {
+            self.reference = ref
+        }
         
         // Create a mutable configuration
         var configuration = RoomCaptureSession.Configuration()
@@ -180,11 +180,18 @@ struct RoomCaptureRepresentable: UIViewRepresentable {
         // Handle the processed result
         func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
             if let error = error {
-                print("Error processing room: \(error.localizedDescription)")
+                print("Coordinator: captureView(didPresent:) ERROR - \(error.localizedDescription)") // Modified log
                 return
             }
-            
+            print("Coordinator: captureView(didPresent:) successfully processed room. Calling parent.onScanComplete.") // Added log
             parent.onScanComplete(processedResult)
+        }
+        
+        // Add didFailWithError to catch other errors
+        func captureView(_ captureView: RoomCaptureView, didFailWithError error: Error) {
+            print("Coordinator: captureView(didFailWithError:) called with error: \(error.localizedDescription)")
+            // Optionally, inform the parent/user about the failure
+            // parent.onCancel() or a specific error handler
         }
     }
 } 
