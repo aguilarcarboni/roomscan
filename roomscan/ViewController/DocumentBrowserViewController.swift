@@ -1,17 +1,19 @@
 import UIKit
 import SwiftUI
 import RoomPlan
+import QuickLook
 
 // Delegate protocol to notify about starting a scan
 protocol DocumentBrowserDelegate: AnyObject {
     func didRequestStartScan(inDirectory directoryURL: URL)
 }
 
-class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocumentBrowserViewControllerDelegate {
+class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocumentBrowserViewControllerDelegate, QLPreviewControllerDataSource {
 
     weak var scanningDelegate: DocumentBrowserDelegate?
     var onStartRoomScan: (() -> Void)?
     var documentsDirectoryURL: URL?
+    var previewItemURL: URL?
     
     // Store the import handler and temporary URL
     private var importHandler: ((URL?, UIDocumentBrowserViewController.ImportMode) -> Void)?
@@ -42,8 +44,11 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
     func documentBrowser(_ controller: UIDocumentBrowserViewController, didPickDocumentsAt urls: [URL]) {
         guard let sourceURL = urls.first else { return }
         print("Document picked: \(sourceURL)")
-        // Here you would handle opening the selected USDZ document.
-        // This could involve passing the URL to a QLPreviewController or a custom SCNView.
+        previewItemURL = sourceURL
+
+        let previewController = QLPreviewController()
+        previewController.dataSource = self
+        present(previewController, animated: true, completion: nil)
     }
 
     func documentBrowser(_ controller: UIDocumentBrowserViewController, didRequestDocumentCreationWithHandler importHandler: @escaping (URL?, UIDocumentBrowserViewController.ImportMode) -> Void) {
@@ -97,5 +102,15 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
     
     func documentBrowser(_ controller: UIDocumentBrowserViewController, willPresent activityViewController: UIActivityViewController) {
         print("Activity View Controller will be presented.")
+    }
+    
+    // MARK: - QLPreviewControllerDataSource
+    
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+        return previewItemURL == nil ? 0 : 1
+    }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+        return previewItemURL! as QLPreviewItem
     }
 }

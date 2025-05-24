@@ -12,6 +12,8 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.pixar.universal-scene-description-mobile</string>
+				<string>com.pixar.usd</string>
+				<string>com.apple.quicklook.usdz</string>
 			</array>
 		</dict>
 	</array>
