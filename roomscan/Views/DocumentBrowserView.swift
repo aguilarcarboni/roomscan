@@ -4,6 +4,7 @@ import SwiftUI
 
 // Wrapper for UIDocumentBrowserViewController
 struct DocumentBrowserView: UIViewControllerRepresentable {
+    
     var onStartScan: (URL) -> Void // Closure to call when scanning should start
 
     func makeUIViewController(context: Context) -> DocumentBrowserViewController {
@@ -29,9 +30,7 @@ struct DocumentBrowserView: UIViewControllerRepresentable {
         }
 
         func didRequestStartScan(inDirectory directoryURL: URL) {
-            // Call the closure provided by the parent view (e.g., HomeView)
             parent.onStartScan(directoryURL)
-            print("Coordinator: Scan requested in directory: \(directoryURL)")
         }
     }
 }

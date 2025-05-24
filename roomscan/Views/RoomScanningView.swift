@@ -4,15 +4,14 @@ import RoomPlan
 struct RoomScanningView: View {
     
     @Environment(\.dismiss) private var dismiss
-    var scanDirectoryURL: URL?
+    var scanDirectoryURL: URL
     
     @State private var capturedRoom: CapturedRoom?
-    @State private var scanURL: URL?
-
-    @State private var showingExportSheet = false
     @State private var scanningViewRef: RoomCaptureRepresentableRef? = nil
+    @State private var showingFolderNamePrompt = false
+    @State private var folderNameInput = ""
     
-    var onScanComplete: (CapturedRoom) -> Void
+    var onScanComplete: (_ capturedRoom: CapturedRoom, _ fileURL: URL) -> Void
     
     var body: some View {
         ZStack {
@@ -20,9 +19,7 @@ struct RoomScanningView: View {
             RoomCaptureRepresentable(
                 reference: $scanningViewRef,
                 onScanComplete: { capturedRoom in
-                    print("RoomScanningView: RCRepresentable onScanComplete: capturedRoom received.") // Modified log
                     self.capturedRoom = capturedRoom
-                    print("RoomScanningView: self.capturedRoom set. UI should show 'Close' button.") // Modified log
                 },
                 onCancel: {
                     dismiss()
@@ -58,12 +55,7 @@ struct RoomScanningView: View {
                             .fontWeight(Font.Weight.bold)
                         } else {
                             Button("Close") {
-                                print("RoomScanningView: 'Close' (export) button tapped.") // Added log
-                                if let scanDirectoryURL = scanDirectoryURL {
-                                    finishScan(scanDirectoryURL: scanDirectoryURL)
-                                } else {
-                                    print("RoomScanningView: ERROR - scanDirectoryURL is nil for export.") // Added log
-                                }
+                                showingFolderNamePrompt = true
                             }
                             .padding()
                             .buttonStyle(PlainButtonStyle())
@@ -78,26 +70,31 @@ struct RoomScanningView: View {
             )
         }
         .navigationBarHidden(true)
-        .onAppear { // Diagnostic print
-            print("RoomScanningView: Appeared. scanDirectoryURL: \(scanDirectoryURL?.path ?? "nil")")
-        }
+        .alert("Export Scan", isPresented: $showingFolderNamePrompt, actions: {
+            TextField("Folder Name", text: $folderNameInput)
+            Button("Export") {
+                finishScan(scanDirectoryURL: scanDirectoryURL)
+            }
+            Button("Cancel", role: .cancel) {}
+        }, message: {
+            Text("Enter a folder name for your scan.")
+        })
     }
     
     private func finishScan(scanDirectoryURL: URL) {
-        
+
         guard let capturedRoom = capturedRoom else { print("RoomScanningView: finishScan - ERROR: capturedRoom is nil."); return } // Modified log
         
-        // Create a temporary file URL for the USDZ
-        let scanURL = scanDirectoryURL.appendingPathComponent("room_scan_\(Date().timeIntervalSince1970).usdz")
-        print("RoomScanningView: finishScan - Attempting to export to \(scanURL)") // Added log
-        
+        let trimmedName = folderNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scanName = trimmedName.isEmpty ? "NewScan" : trimmedName
+        let scanURL = scanDirectoryURL.appendingPathComponent(scanName + ".usdz")
+        let metadataURL = scanDirectoryURL.appendingPathComponent(scanName + ".json")
+
         do {
-            try capturedRoom.export(to: scanURL)
-            print("RoomScanningView: finishScan - Export successful.") // Added log
-            onScanComplete(capturedRoom) // This is the view's onScanComplete property
-            print("RoomScanningView: finishScan - Called parent onScanComplete.") // Added log
+            try capturedRoom.export(to: scanURL, metadataURL: metadataURL, exportOptions: CapturedRoom.USDExportOptions.model)
+            onScanComplete(capturedRoom, scanURL) // Modified call
         } catch {
-            print("RoomScanningView: finishScan - Failed to export room: \(error)") // Modified log
+            print("RoomScanningView: finishScan - Failed to export room: \(error)")
         }
     }
 }

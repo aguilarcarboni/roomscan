@@ -15,15 +15,9 @@
 			</array>
 		</dict>
 	</array>
-	<key>UISupportsDocumentBrowser</key>
-	<true/>
-	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.pixar.universal-scene-description-mobile</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
@@ -31,6 +25,8 @@
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Universal Scene Description (Mobile)</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.pixar.universal-scene-description-mobile</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

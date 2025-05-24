@@ -1,4 +1,6 @@
 import UIKit
+import SwiftUI
+import RoomPlan
 
 // Delegate protocol to notify about starting a scan
 protocol DocumentBrowserDelegate: AnyObject {
@@ -9,8 +11,11 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
 
     weak var scanningDelegate: DocumentBrowserDelegate?
     var onStartRoomScan: (() -> Void)?
-
     var documentsDirectoryURL: URL?
+    
+    // Store the import handler and temporary URL
+    private var importHandler: ((URL?, UIDocumentBrowserViewController.ImportMode) -> Void)?
+    private var temporaryScanURL: URL?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -23,7 +28,7 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
         // Log the documents directory path
         if let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
             documentsDirectoryURL = documentsDirectory
-            print("Documents Directory: \(documentsDirectory.path)")
+            print("App Directory: \(documentsDirectory.path)")
         } else {
             print("Error: Could not access documents directory.")
         }
@@ -43,21 +48,46 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
 
     func documentBrowser(_ controller: UIDocumentBrowserViewController, didRequestDocumentCreationWithHandler importHandler: @escaping (URL?, UIDocumentBrowserViewController.ImportMode) -> Void) {
 
-        guard let documentsDirectory = documentsDirectoryURL else {
-            print("Error: Could not access documents directory.")
+        // Store the import handler
+        self.importHandler = importHandler
+
+        // Create a temporary directory for the scan
+        let tempDirectoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: tempDirectoryURL, withIntermediateDirectories: true, attributes: nil)
+            self.temporaryScanURL = tempDirectoryURL
+        } catch {
+            print("Error creating temporary directory: \(error)")
+            // Call importHandler with nil to indicate failure, and .none as we are not importing anything
+            importHandler(nil, .none)
+            return
+        }
+
+        // Prepare and present the RoomScanningView
+        guard let scanDirURL = self.temporaryScanURL else {
+            print("Error: Temporary scan directory URL is nil.")
             importHandler(nil, .none)
             return
         }
         
-        let newScanDirectory = documentsDirectory.appendingPathComponent("NewScan-\(UUID().uuidString)")
+        let roomScanningView = RoomScanningView(
+            scanDirectoryURL: scanDirURL, // Pass the temporary directory
+            onScanComplete: { [weak self] (capturedRoom, fileURL) in
+                // Dismiss the RoomScanningView
+                self?.presentedViewController?.dismiss(animated: true, completion: {
+                    // Call the stored importHandler with the URL of the saved scan file
+                    // Use .move as the file is in a temporary location
+                    self?.importHandler?(fileURL, .move)
+                    // Clear the handler and temp URL after use
+                    self?.importHandler = nil
+                    self?.temporaryScanURL = nil
+                })
+            }
+        )
 
-        do {
-            try FileManager.default.createDirectory(at: newScanDirectory, withIntermediateDirectories: true, attributes: nil)
-            print("Created scan directory at: \(newScanDirectory.path)")
-            scanningDelegate?.didRequestStartScan(inDirectory: newScanDirectory)
-        } catch {
-            print("Error creating scan directory: \(error)")
-        }
+        let hostingController = UIHostingController(rootView: roomScanningView)
+        hostingController.modalPresentationStyle = .fullScreen // Or your preferred style
+        self.present(hostingController, animated: true, completion: nil)
     }
 
     func documentBrowser(_ controller: UIDocumentBrowserViewController, failedToImportDocumentAt documentURL: URL, error: Error?) {
