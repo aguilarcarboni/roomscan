@@ -1,19 +1,18 @@
 import UIKit
 import SwiftUI
 import RoomPlan
-import QuickLook
+import RealityKit
 
 // Delegate protocol to notify about starting a scan
 protocol DocumentBrowserDelegate: AnyObject {
     func didRequestStartScan(inDirectory directoryURL: URL)
 }
 
-class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocumentBrowserViewControllerDelegate, QLPreviewControllerDataSource {
+class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocumentBrowserViewControllerDelegate {
 
     weak var scanningDelegate: DocumentBrowserDelegate?
     var onStartRoomScan: (() -> Void)?
     var documentsDirectoryURL: URL?
-    var previewItemURL: URL?
     
     // Store the import handler and temporary URL
     private var importHandler: ((URL?, UIDocumentBrowserViewController.ImportMode) -> Void)?
@@ -22,7 +21,7 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
     override func viewDidLoad() {
         super.viewDidLoad()
         delegate = self
-        allowsDocumentCreation = true
+        allowsDocumentCreation = false // Only viewing USDZ files, no creation needed
         allowsPickingMultipleItems = false
         
         // The allowedContentTypes property is get-only and configured via Info.plist
@@ -44,11 +43,9 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
     func documentBrowser(_ controller: UIDocumentBrowserViewController, didPickDocumentsAt urls: [URL]) {
         guard let sourceURL = urls.first else { return }
         print("Document picked: \(sourceURL)")
-        previewItemURL = sourceURL
-
-        let previewController = QLPreviewController()
-        previewController.dataSource = self
-        present(previewController, animated: true, completion: nil)
+        
+        // Present the RealityKit 3D editor instead of QuickLook
+        present3DEditor(with: sourceURL)
     }
 
     func documentBrowser(_ controller: UIDocumentBrowserViewController, didRequestDocumentCreationWithHandler importHandler: @escaping (URL?, UIDocumentBrowserViewController.ImportMode) -> Void) {
@@ -104,13 +101,9 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
         print("Activity View Controller will be presented.")
     }
     
-    // MARK: - QLPreviewControllerDataSource
-    
-    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
-        return previewItemURL == nil ? 0 : 1
-    }
-
-    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
-        return previewItemURL! as QLPreviewItem
+    private func present3DEditor(with url: URL) {
+        let editorViewController = RealityKit3DEditorViewController(modelURL: url)
+        editorViewController.modalPresentationStyle = .fullScreen
+        present(editorViewController, animated: true)
     }
 }
