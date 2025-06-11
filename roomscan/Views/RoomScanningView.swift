@@ -11,7 +11,7 @@ struct RoomScanningView: View {
     @State private var showingFolderNamePrompt = false
     @State private var folderNameInput = ""
     
-    var onScanComplete: (_ capturedRoom: CapturedRoom, _ fileURL: URL) -> Void
+    var onScanComplete: (_ capturedRoom: CapturedRoom, _ usdzURL: URL, _ metadataURL: URL?) -> Void
     
     var body: some View {
         ZStack {
@@ -41,12 +41,11 @@ struct RoomScanningView: View {
                         
                         // Show Done or Export button based on state
                         if capturedRoom == nil {
-                            Button("Done") {
-                                print("RoomScanningView: 'Done' button tapped.") // Added log
+                            Button("Preview") {
                                 if let scanningViewRef = scanningViewRef {
                                     scanningViewRef.finishScanning()
                                 } else {
-                                    print("RoomScanningView: ERROR - scanningViewRef is nil on 'Done' tap.") // Added log
+                                    print("RoomScanningView: ERROR - scanningViewRef is nil on 'Preview' tap.")
                                 }
                             }
                             .padding()
@@ -54,7 +53,7 @@ struct RoomScanningView: View {
                             .background(Color.clear)
                             .fontWeight(Font.Weight.bold)
                         } else {
-                            Button("Close") {
+                            Button("Done") {
                                 showingFolderNamePrompt = true
                             }
                             .padding()
@@ -71,13 +70,13 @@ struct RoomScanningView: View {
         }
         .navigationBarHidden(true)
         .alert("Export Scan", isPresented: $showingFolderNamePrompt, actions: {
-            TextField("Folder Name", text: $folderNameInput)
+            TextField("Project Name", text: $folderNameInput)
             Button("Export") {
                 finishScan(scanDirectoryURL: scanDirectoryURL)
             }
             Button("Cancel", role: .cancel) {}
         }, message: {
-            Text("Enter a folder name for your scan.")
+            Text("Enter a project name for your scan.")
         })
     }
     
@@ -91,8 +90,22 @@ struct RoomScanningView: View {
         let metadataURL = scanDirectoryURL.appendingPathComponent(scanName + ".json")
 
         do {
-            try capturedRoom.export(to: scanURL, metadataURL: metadataURL, modelProvider: nil, exportOptions: .model)
-            onScanComplete(capturedRoom, scanURL) // Modified call
+            // Export with metadata - using .mesh option which is more commonly supported
+            try capturedRoom.export(to: scanURL, metadataURL: metadataURL, modelProvider: nil, exportOptions: .mesh)
+            print("RoomScanningView: ✅ Exported USDZ to temp: \(scanURL.lastPathComponent)")
+            print("RoomScanningView: ✅ Exported metadata to temp: \(metadataURL.lastPathComponent)")
+            
+            // Verify the files were actually created
+            let finalMetadataURL: URL?
+            if FileManager.default.fileExists(atPath: metadataURL.path) {
+                print("RoomScanningView: ✅ Both files ready for import to RoomScan app space")
+                finalMetadataURL = metadataURL
+            } else {
+                print("RoomScanningView: ⚠️ Metadata file missing, importing USDZ only")
+                finalMetadataURL = nil
+            }
+            
+            onScanComplete(capturedRoom, scanURL, finalMetadataURL)
         } catch {
             print("RoomScanningView: finishScan - Failed to export room: \(error)")
         }

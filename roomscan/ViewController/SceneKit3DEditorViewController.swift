@@ -10,17 +10,13 @@ class SceneKit3DEditorViewController: UIViewController {
     private var scene: SCNScene!
     private var modelURL: URL!
     private var selectedNode: SCNNode?
-    private var toolbar: UIToolbar!
+    // Simple top toolbar
     private var topToolbar: UIToolbar!
     
-    // Camera control
+    // Camera will be handled by SceneKit's built-in controls
     private var cameraNode: SCNNode!
-    private var defaultCameraPosition = SCNVector3(0, 2, 5)
     
-    // Gesture recognizers
-    private var panGesture: UIPanGestureRecognizer!
-    private var pinchGesture: UIPinchGestureRecognizer!
-    private var rotationGesture: UIRotationGestureRecognizer!
+    // Only tap gesture for selection
     private var tapGesture: UITapGestureRecognizer!
     
     // Lighting nodes
@@ -50,13 +46,17 @@ class SceneKit3DEditorViewController: UIViewController {
     // MARK: - Lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
+        
+        // Make view fullscreen
+        modalPresentationStyle = .fullScreen
+        
         setupSceneView()
         setupScene()
         setupCamera()
         setupLighting()
         setupGrid()
-        setupToolbars()
-        setupGestures()
+                setupTopBar()
+        setupTapGesture()
     }
     
     override func viewDidAppear(_ animated: Bool) {
@@ -66,13 +66,16 @@ class SceneKit3DEditorViewController: UIViewController {
     
     // MARK: - Setup Methods
     private func setupSceneView() {
+        // Make the view fullscreen
         sceneView = SCNView(frame: view.bounds)
         sceneView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        sceneView.backgroundColor = UIColor.darkGray
-        sceneView.allowsCameraControl = false // We'll handle camera control manually
+        sceneView.backgroundColor = UIColor.black
+        sceneView.allowsCameraControl = true // Use built-in SceneKit camera controls
         sceneView.showsStatistics = true
-        sceneView.debugOptions = [.showWireframe]
+        sceneView.debugOptions = []
         view.addSubview(sceneView)
+        
+
     }
     
     private func setupScene() {
@@ -88,8 +91,10 @@ class SceneKit3DEditorViewController: UIViewController {
         cameraNode.camera = SCNCamera()
         cameraNode.camera?.zNear = 0.1
         cameraNode.camera?.zFar = 100
-        cameraNode.position = defaultCameraPosition
-        cameraNode.look(at: SCNVector3(0, 0, 0))
+        
+        // Set initial camera position (SceneKit will handle controls from here)
+        cameraNode.position = SCNVector3(0, 2, 5)
+        
         scene.rootNode.addChildNode(cameraNode)
         sceneView.pointOfView = cameraNode
     }
@@ -129,112 +134,42 @@ class SceneKit3DEditorViewController: UIViewController {
     }
     
     private func createGrid() {
-        if let gridNode = gridNode {
-            gridNode.removeFromParentNode()
-        }
-        
-        let gridNode = SCNNode()
-        let gridSize = 10
-        let gridSpacing: Float = 1.0
-        
-        // Create grid lines
-        for i in -gridSize...gridSize {
-            // Vertical lines (along Z-axis)
-            let verticalGeometry = SCNCylinder(radius: 0.005, height: CGFloat(gridSize * 2))
-            let verticalNode = SCNNode(geometry: verticalGeometry)
-            verticalNode.position = SCNVector3(Float(i) * gridSpacing, 0, 0)
-            verticalNode.rotation = SCNVector4(1, 0, 0, Float.pi / 2)
-            
-            // Horizontal lines (along X-axis)
-            let horizontalGeometry = SCNCylinder(radius: 0.005, height: CGFloat(gridSize * 2))
-            let horizontalNode = SCNNode(geometry: horizontalGeometry)
-            horizontalNode.position = SCNVector3(0, 0, Float(i) * gridSpacing)
-            horizontalNode.rotation = SCNVector4(0, 0, 1, Float.pi / 2)
-            
-            // Style the grid lines
-            let gridMaterial = SCNMaterial()
-            gridMaterial.diffuse.contents = UIColor.systemGray4.withAlphaComponent(0.3)
-            verticalGeometry.materials = [gridMaterial]
-            horizontalGeometry.materials = [gridMaterial]
-            
-            gridNode.addChildNode(verticalNode)
-            gridNode.addChildNode(horizontalNode)
-        }
-        
-        // Add a ground plane
-        let groundGeometry = SCNPlane(width: CGFloat(gridSize * 2), height: CGFloat(gridSize * 2))
-        let groundNode = SCNNode(geometry: groundGeometry)
-        groundNode.rotation = SCNVector4(1, 0, 0, -Float.pi / 2)
-        groundNode.position.y = -0.01
-        
-        let groundMaterial = SCNMaterial()
-        groundMaterial.diffuse.contents = UIColor.systemGray6.withAlphaComponent(0.1)
-        groundGeometry.materials = [groundMaterial]
-        
-        gridNode.addChildNode(groundNode)
-        scene.rootNode.addChildNode(gridNode)
-        self.gridNode = gridNode
+        // Grid is now disabled - no ground plane or grid lines
+        gridNode = SCNNode()
+        scene.rootNode.addChildNode(gridNode!)
     }
     
-    private func setupToolbars() {
-        // Top toolbar
+    private func setupTopBar() {
+        // Create a simple top toolbar with liquid glass effect
         topToolbar = UIToolbar()
         topToolbar.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Configure with liquid glass appearance
+        let appearance = UIToolbarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundColor = UIColor.clear
+        
+        topToolbar.standardAppearance = appearance
+        topToolbar.compactAppearance = appearance
+        topToolbar.scrollEdgeAppearance = appearance
+        
         view.addSubview(topToolbar)
         
+        // Create Done button
         let doneButton = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(dismissEditor))
         let flexSpace = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
-        let resetButton = UIBarButtonItem(title: "Reset View", style: .plain, target: self, action: #selector(resetCameraView))
-        let gridButton = UIBarButtonItem(title: "Grid", style: .plain, target: self, action: #selector(toggleGrid))
-        let wireframeButton = UIBarButtonItem(title: "Wireframe", style: .plain, target: self, action: #selector(toggleWireframe))
         
-        topToolbar.items = [doneButton, flexSpace, gridButton, wireframeButton, resetButton]
-        
-        // Bottom toolbar
-        toolbar = UIToolbar()
-        toolbar.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(toolbar)
-        
-        let deleteButton = UIBarButtonItem(title: "🗑️ Delete", style: .plain, target: self, action: #selector(deleteSelected))
-        let duplicateButton = UIBarButtonItem(title: "📋 Duplicate", style: .plain, target: self, action: #selector(duplicateSelected))
-        let flexSpace2 = UIBarButtonItem(barButtonSystemItem: .flexibleSpace, target: nil, action: nil)
-        let transformButton = UIBarButtonItem(title: "🔄 Transform", style: .plain, target: self, action: #selector(showTransformOptions))
-        
-        toolbar.items = [transformButton, flexSpace2, duplicateButton, deleteButton]
+        topToolbar.items = [flexSpace, doneButton]
         
         // Constraints
         NSLayoutConstraint.activate([
             topToolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             topToolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topToolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            
-            toolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+            topToolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
     }
     
-    private func setupGestures() {
-        // Pan gesture for camera rotation
-        panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
-        panGesture.minimumNumberOfTouches = 1
-        panGesture.maximumNumberOfTouches = 1
-        sceneView.addGestureRecognizer(panGesture)
-        
-        // Pinch gesture for camera zoom
-        pinchGesture = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
-        sceneView.addGestureRecognizer(pinchGesture)
-        
-        // Tap gesture for selection
-        tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
-        sceneView.addGestureRecognizer(tapGesture)
-        
-        // Two-finger pan for camera panning
-        let twoPanGesture = UIPanGestureRecognizer(target: self, action: #selector(handleTwoPan(_:)))
-        twoPanGesture.minimumNumberOfTouches = 2
-        twoPanGesture.maximumNumberOfTouches = 2
-        sceneView.addGestureRecognizer(twoPanGesture)
-    }
+
     
     // MARK: - Model Loading
     private func loadModel() {
@@ -265,6 +200,7 @@ class SceneKit3DEditorViewController: UIViewController {
             
             // Add the loaded model to our scene
             for child in loadedScene.rootNode.childNodes {
+                
                 // Store original transform
                 originalModelTransform = child.transform
                 
@@ -292,8 +228,18 @@ class SceneKit3DEditorViewController: UIViewController {
             (min.z + max.z) / 2
         )
         
-        // Center the model
-        node.position = SCNVector3(-center.x, -center.y, -center.z)
+        // Position the model on top of the ground plane with padding
+        // Center it horizontally (X,Z) and lift it above ground level
+        let groundPadding: Float = 0.1 // Small padding above ground
+        node.position = SCNVector3(-center.x, -min.y + groundPadding, -center.z)
+        
+        // With built-in camera controls, just position the camera to look at the model
+        let modelHeight = max.y - min.y
+        let modelCenter = SCNVector3(0, modelHeight / 2 + groundPadding, 0)
+        
+        // Position camera to look at the model center
+        cameraNode.position = SCNVector3(0, modelCenter.y, 5)
+        cameraNode.look(at: modelCenter)
         
         // Calculate the model's size
         let size = SCNVector3(
@@ -309,59 +255,15 @@ class SceneKit3DEditorViewController: UIViewController {
             let scale = targetSize / maxDimension
             node.scale = SCNVector3(scale, scale, scale)
         }
+        
+        // SceneKit's built-in camera controls will handle the rest automatically
     }
     
-    // MARK: - Gesture Handlers
-    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        let translation = gesture.translation(in: sceneView)
-        
-        // Rotate camera around the origin
-        let rotationX = Float(translation.y) * 0.01
-        let rotationY = Float(translation.x) * 0.01
-        
-        // Apply rotation to camera
-        let currentTransform = cameraNode.transform
-        cameraNode.transform = SCNMatrix4Rotate(currentTransform, rotationX, 1, 0, 0)
-        cameraNode.transform = SCNMatrix4Rotate(cameraNode.transform, rotationY, 0, 1, 0)
-        
-        gesture.setTranslation(CGPoint.zero, in: sceneView)
-    }
-    
-    @objc private func handleTwoPan(_ gesture: UIPanGestureRecognizer) {
-        let translation = gesture.translation(in: sceneView)
-        
-        // Pan camera
-        let panSpeed: Float = 0.01
-        let moveVector = SCNVector3(
-            -Float(translation.x) * panSpeed,
-            Float(translation.y) * panSpeed,
-            0
-        )
-        
-        cameraNode.position = SCNVector3(
-            cameraNode.position.x + moveVector.x,
-            cameraNode.position.y + moveVector.y,
-            cameraNode.position.z + moveVector.z
-        )
-        
-        gesture.setTranslation(CGPoint.zero, in: sceneView)
-    }
-    
-    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
-        let scale = gesture.scale
-        let zoomSpeed: Float = 0.1
-        
-        // Move camera closer or further from origin
-        let direction = normalize(cameraNode.position)
-        let moveDistance = (1.0 - Float(scale)) * zoomSpeed
-        
-        cameraNode.position = SCNVector3(
-            cameraNode.position.x + direction.x * moveDistance,
-            cameraNode.position.y + direction.y * moveDistance,
-            cameraNode.position.z + direction.z * moveDistance
-        )
-        
-        gesture.scale = 1.0
+    // MARK: - Gesture Setup (only for selection)
+    private func setupTapGesture() {
+        // Tap gesture for selection
+        tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        sceneView.addGestureRecognizer(tapGesture)
     }
     
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
@@ -374,6 +276,8 @@ class SceneKit3DEditorViewController: UIViewController {
             deselectNode()
         }
     }
+    
+
     
     // MARK: - Selection Management
     private func selectNode(_ node: SCNNode) {
@@ -420,97 +324,17 @@ class SceneKit3DEditorViewController: UIViewController {
         node.childNodes.first { $0.name == "selectionWireframe" }?.removeFromParentNode()
     }
     
-    // MARK: - Toolbar Actions
+    // MARK: - Menu Actions
     @objc private func dismissEditor() {
         onDismiss?()
         dismiss(animated: true)
     }
     
-    @objc private func resetCameraView() {
-        SCNTransaction.begin()
-        SCNTransaction.animationDuration = 1.0
-        cameraNode.position = defaultCameraPosition
-        cameraNode.look(at: SCNVector3(0, 0, 0))
-        SCNTransaction.commit()
-    }
+
     
-    @objc private func toggleGrid() {
-        showGrid.toggle()
-        gridNode?.isHidden = !showGrid
-    }
-    
-    @objc private func toggleWireframe() {
-        if sceneView.debugOptions.contains(.showWireframe) {
-            sceneView.debugOptions.remove(.showWireframe)
-        } else {
-            sceneView.debugOptions.insert(.showWireframe)
-        }
-    }
-    
-    @objc private func deleteSelected() {
-        guard let selectedNode = selectedNode else {
-            showAlert(title: "No Selection", message: "Please select a node to delete.")
-            return
-        }
-        
-        let alert = UIAlertController(title: "Delete Node", message: "Are you sure you want to delete this node?", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Delete", style: .destructive) { _ in
-            selectedNode.removeFromParentNode()
-            self.selectedNode = nil
-        })
-        
-        present(alert, animated: true)
-    }
-    
-    @objc private func duplicateSelected() {
-        guard let selectedNode = selectedNode else {
-            showAlert(title: "No Selection", message: "Please select a node to duplicate.")
-            return
-        }
-        
-        let duplicatedNode = selectedNode.clone()
-        duplicatedNode.position = SCNVector3(
-            selectedNode.position.x + 1,
-            selectedNode.position.y,
-            selectedNode.position.z + 1
-        )
-        
-        selectedNode.parent?.addChildNode(duplicatedNode)
-        selectNode(duplicatedNode)
-    }
-    
-    @objc private func showTransformOptions() {
-        guard let selectedNode = selectedNode else {
-            showAlert(title: "No Selection", message: "Please select a node to transform.")
-            return
-        }
-        
-        let alert = UIAlertController(title: "Transform Node", message: "Choose a transformation", preferredStyle: .actionSheet)
-        
-        alert.addAction(UIAlertAction(title: "Reset Position", style: .default) { _ in
-            selectedNode.position = SCNVector3(0, 0, 0)
-        })
-        
-        alert.addAction(UIAlertAction(title: "Reset Rotation", style: .default) { _ in
-            selectedNode.rotation = SCNVector4(0, 1, 0, 0)
-        })
-        
-        alert.addAction(UIAlertAction(title: "Reset Scale", style: .default) { _ in
-            selectedNode.scale = SCNVector3(1, 1, 1)
-        })
-        
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        
-        present(alert, animated: true)
-    }
+
     
     // MARK: - Utility Methods
-    private func normalize(_ vector: SCNVector3) -> SCNVector3 {
-        let length = sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z)
-        if length == 0 { return SCNVector3(0, 0, 1) }
-        return SCNVector3(vector.x / length, vector.y / length, vector.z / length)
-    }
     
     private func showErrorAlert(message: String) {
         DispatchQueue.main.async {

@@ -28,8 +28,8 @@ struct ContentView: View {
         .sheet(item: $scanInfoForSheet) { info in
             RoomScanningView(
                 scanDirectoryURL: info.directoryURL, 
-                onScanComplete: { capturedRoom, _ in
-                    print("ContentView: Scan complete, capturedRoom received.")
+                onScanComplete: { capturedRoom, usdzURL, metadataURL in
+                    print("ContentView: ✅ Scan complete - files imported to RoomScan app space")
                     self.capturedRooms.append(capturedRoom)
                     self.scanInfoForSheet = nil
                 }

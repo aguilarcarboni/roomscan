@@ -28,16 +28,69 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
         
         // The allowedContentTypes property is get-only and configured via Info.plist
 
-        // Log the documents directory path
-        if let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-            documentsDirectoryURL = documentsDirectory
-            print("App Directory: \(documentsDirectory.path)")
-        } else {
-            print("Error: Could not access documents directory.")
-        }
+        // Setup dedicated RoomScans directory
+        setupRoomScansDirectory()
 
         browserUserInterfaceStyle = .light
         view.tintColor = .accent
+    }
+    
+    private func setupRoomScansDirectory() {
+        guard let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            print("Error: Could not access documents directory.")
+            return
+        }
+        
+        documentsDirectoryURL = documentsDirectory
+        print("RoomScan App Documents Directory: \(documentsDirectory.path)")
+        print("This directory appears as 'RoomScan' in iOS Files app")
+    }
+    
+    private func importMetadataToSameLocation(from metadataURL: URL, usdzURL: URL) {
+        guard let documentsDirectory = documentsDirectoryURL else {
+            print("DocumentBrowserViewController: Documents directory not available for metadata import")
+            return
+        }
+        
+        // Extract project name from the USDZ filename (remove .usdz extension)
+        let projectName = usdzURL.deletingPathExtension().lastPathComponent
+        let projectDirectory = documentsDirectory.appendingPathComponent(projectName)
+        
+        // Add a small delay to ensure the USDZ import completes first
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            do {
+                // Create project directory if it doesn't exist
+                if !FileManager.default.fileExists(atPath: projectDirectory.path) {
+                    try FileManager.default.createDirectory(at: projectDirectory, withIntermediateDirectories: true, attributes: nil)
+                    print("DocumentBrowserViewController: ✅ Created project directory: \(projectName)")
+                }
+                
+                // Move the USDZ file from root to project directory
+                let currentUsdzLocation = documentsDirectory.appendingPathComponent(usdzURL.lastPathComponent)
+                let targetUsdzLocation = projectDirectory.appendingPathComponent(usdzURL.lastPathComponent)
+                
+                if FileManager.default.fileExists(atPath: currentUsdzLocation.path) {
+                    if FileManager.default.fileExists(atPath: targetUsdzLocation.path) {
+                        try FileManager.default.removeItem(at: targetUsdzLocation)
+                    }
+                    try FileManager.default.moveItem(at: currentUsdzLocation, to: targetUsdzLocation)
+                    print("DocumentBrowserViewController: ✅ Moved USDZ to project directory: \(projectName)/\(usdzURL.lastPathComponent)")
+                }
+                
+                // Move the metadata file to project directory
+                let targetMetadataURL = projectDirectory.appendingPathComponent(metadataURL.lastPathComponent)
+                if FileManager.default.fileExists(atPath: targetMetadataURL.path) {
+                    try FileManager.default.removeItem(at: targetMetadataURL)
+                }
+                try FileManager.default.moveItem(at: metadataURL, to: targetMetadataURL)
+                print("DocumentBrowserViewController: ✅ Moved JSON to project directory: \(projectName)/\(metadataURL.lastPathComponent)")
+                
+                print("DocumentBrowserViewController: ✅ Project '\(projectName)' organized in dedicated folder")
+                
+            } catch {
+                print("DocumentBrowserViewController: ❌ Failed to organize files in project directory: \(error)")
+            }
+        }
     }
 
     // MARK: - UIDocumentBrowserViewControllerDelegate
@@ -48,7 +101,7 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
         previewItemURL = sourceURL
 
         // Show options for how to open the USDZ file
-        showOpenOptionsForUSDZ(url: sourceURL)
+        openWithSceneKitEditor(url: sourceURL)
     }
 
     func documentBrowser(_ controller: UIDocumentBrowserViewController, didRequestDocumentCreationWithHandler importHandler: @escaping (URL?, UIDocumentBrowserViewController.ImportMode) -> Void) {
@@ -76,13 +129,18 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
         }
         
         let roomScanningView = RoomScanningView(
-            scanDirectoryURL: scanDirURL, // Pass the temporary directory
-            onScanComplete: { [weak self] (capturedRoom, fileURL) in
+            scanDirectoryURL: scanDirURL,
+            onScanComplete: { [weak self] (capturedRoom, usdzURL, metadataURL) in
                 // Dismiss the RoomScanningView
                 self?.presentedViewController?.dismiss(animated: true, completion: {
-                    // Call the stored importHandler with the URL of the saved scan file
-                    // Use .move as the file is in a temporary location
-                    self?.importHandler?(fileURL, .move)
+                    // First import the USDZ through the official mechanism to local storage
+                    self?.importHandler?(usdzURL, .move)
+                    
+                    // Then import the metadata to the same local location
+                    if let metadataURL = metadataURL {
+                        self?.importMetadataToSameLocation(from: metadataURL, usdzURL: usdzURL)
+                    }
+                    
                     // Clear the handler and temp URL after use
                     self?.importHandler = nil
                     self?.temporaryScanURL = nil
@@ -116,31 +174,6 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
     
     // MARK: - 3D Editor Integration
     
-    private func showOpenOptionsForUSDZ(url: URL) {
-        let alert = UIAlertController(title: "Open 3D Model", message: "Choose how to view this 3D model", preferredStyle: .actionSheet)
-        
-        // SceneKit Editor option
-        alert.addAction(UIAlertAction(title: "SceneKit Editor", style: .default) { _ in
-            self.openWithSceneKitEditor(url: url)
-        })
-
-        // QuickLook Preview option
-        alert.addAction(UIAlertAction(title: "Quick Preview", style: .default) { _ in
-            self.openWithQuickLook(url: url)
-        })
-        
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        
-        // For iPad support
-        if let popover = alert.popoverPresentationController {
-            popover.sourceView = view
-            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
-            popover.permittedArrowDirections = []
-        }
-        
-        present(alert, animated: true)
-    }
-    
     private func openWithSceneKitEditor(url: URL) {
         let sceneKitView = SceneKit3DEditorView(modelURL: url) {
             // Dismiss callback
@@ -148,17 +181,6 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
         }
         
         let hostingController = UIHostingController(rootView: sceneKitView)
-        hostingController.modalPresentationStyle = .fullScreen
-        present(hostingController, animated: true)
-    }
-    
-    private func openWithRealityKitEditor(url: URL) {
-        let realityKitView = RealityKit3DEditorView(modelURL: url) {
-            // Dismiss callback
-            self.presentedViewController?.dismiss(animated: true)
-        }
-        
-        let hostingController = UIHostingController(rootView: realityKitView)
         hostingController.modalPresentationStyle = .fullScreen
         present(hostingController, animated: true)
     }
