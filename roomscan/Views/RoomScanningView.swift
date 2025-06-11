@@ -91,7 +91,7 @@ struct RoomScanningView: View {
         let metadataURL = scanDirectoryURL.appendingPathComponent(scanName + ".json")
 
         do {
-            try capturedRoom.export(to: scanURL, metadataURL: metadataURL, exportOptions: CapturedRoom.USDExportOptions.model)
+            try capturedRoom.export(to: scanURL, metadataURL: metadataURL, modelProvider: nil, exportOptions: .model)
             onScanComplete(capturedRoom, scanURL) // Modified call
         } catch {
             print("RoomScanningView: finishScan - Failed to export room: \(error)")

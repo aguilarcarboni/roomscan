@@ -1,18 +1,20 @@
 import UIKit
 import SwiftUI
 import RoomPlan
-import RealityKit
+import QuickLook
+import SceneKit
 
 // Delegate protocol to notify about starting a scan
 protocol DocumentBrowserDelegate: AnyObject {
     func didRequestStartScan(inDirectory directoryURL: URL)
 }
 
-class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocumentBrowserViewControllerDelegate {
+class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocumentBrowserViewControllerDelegate, QLPreviewControllerDataSource {
 
     weak var scanningDelegate: DocumentBrowserDelegate?
     var onStartRoomScan: (() -> Void)?
     var documentsDirectoryURL: URL?
+    var previewItemURL: URL?
     
     // Store the import handler and temporary URL
     private var importHandler: ((URL?, UIDocumentBrowserViewController.ImportMode) -> Void)?
@@ -21,7 +23,7 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
     override func viewDidLoad() {
         super.viewDidLoad()
         delegate = self
-        allowsDocumentCreation = false // Only viewing USDZ files, no creation needed
+        allowsDocumentCreation = true
         allowsPickingMultipleItems = false
         
         // The allowedContentTypes property is get-only and configured via Info.plist
@@ -43,9 +45,10 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
     func documentBrowser(_ controller: UIDocumentBrowserViewController, didPickDocumentsAt urls: [URL]) {
         guard let sourceURL = urls.first else { return }
         print("Document picked: \(sourceURL)")
-        
-        // Present the RealityKit 3D editor instead of QuickLook
-        present3DEditor(with: sourceURL)
+        previewItemURL = sourceURL
+
+        // Show options for how to open the USDZ file
+        showOpenOptionsForUSDZ(url: sourceURL)
     }
 
     func documentBrowser(_ controller: UIDocumentBrowserViewController, didRequestDocumentCreationWithHandler importHandler: @escaping (URL?, UIDocumentBrowserViewController.ImportMode) -> Void) {
@@ -101,9 +104,68 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
         print("Activity View Controller will be presented.")
     }
     
-    private func present3DEditor(with url: URL) {
-        let editorViewController = RealityKit3DEditorViewController(modelURL: url)
-        editorViewController.modalPresentationStyle = .fullScreen
-        present(editorViewController, animated: true)
+    // MARK: - QLPreviewControllerDataSource
+    
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+        return previewItemURL == nil ? 0 : 1
+    }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+        return previewItemURL! as QLPreviewItem
+    }
+    
+    // MARK: - 3D Editor Integration
+    
+    private func showOpenOptionsForUSDZ(url: URL) {
+        let alert = UIAlertController(title: "Open 3D Model", message: "Choose how to view this 3D model", preferredStyle: .actionSheet)
+        
+        // SceneKit Editor option
+        alert.addAction(UIAlertAction(title: "SceneKit Editor", style: .default) { _ in
+            self.openWithSceneKitEditor(url: url)
+        })
+
+        // QuickLook Preview option
+        alert.addAction(UIAlertAction(title: "Quick Preview", style: .default) { _ in
+            self.openWithQuickLook(url: url)
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        // For iPad support
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        
+        present(alert, animated: true)
+    }
+    
+    private func openWithSceneKitEditor(url: URL) {
+        let sceneKitView = SceneKit3DEditorView(modelURL: url) {
+            // Dismiss callback
+            self.presentedViewController?.dismiss(animated: true)
+        }
+        
+        let hostingController = UIHostingController(rootView: sceneKitView)
+        hostingController.modalPresentationStyle = .fullScreen
+        present(hostingController, animated: true)
+    }
+    
+    private func openWithRealityKitEditor(url: URL) {
+        let realityKitView = RealityKit3DEditorView(modelURL: url) {
+            // Dismiss callback
+            self.presentedViewController?.dismiss(animated: true)
+        }
+        
+        let hostingController = UIHostingController(rootView: realityKitView)
+        hostingController.modalPresentationStyle = .fullScreen
+        present(hostingController, animated: true)
+    }
+    
+    private func openWithQuickLook(url: URL) {
+        let previewController = QLPreviewController()
+        previewController.dataSource = self
+        present(previewController, animated: true)
     }
 }
