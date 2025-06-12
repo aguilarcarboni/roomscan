@@ -46,9 +46,9 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
         print("This directory appears as 'RoomScan' in iOS Files app")
     }
     
-    private func importMetadataToSameLocation(from metadataURL: URL, usdzURL: URL) {
+    private func saveScanFilesLocally(usdzURL: URL, metadataURL: URL?) {
         guard let documentsDirectory = documentsDirectoryURL else {
-            print("DocumentBrowserViewController: Documents directory not available for metadata import")
+            print("DocumentBrowserViewController: Documents directory not available for local save")
             return
         }
         
@@ -56,40 +56,49 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
         let projectName = usdzURL.deletingPathExtension().lastPathComponent
         let projectDirectory = documentsDirectory.appendingPathComponent(projectName)
         
-        // Add a small delay to ensure the USDZ import completes first
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            do {
-                // Create project directory if it doesn't exist
-                if !FileManager.default.fileExists(atPath: projectDirectory.path) {
-                    try FileManager.default.createDirectory(at: projectDirectory, withIntermediateDirectories: true, attributes: nil)
-                    print("DocumentBrowserViewController: ✅ Created project directory: \(projectName)")
-                }
-                
-                // Move the USDZ file from root to project directory
-                let currentUsdzLocation = documentsDirectory.appendingPathComponent(usdzURL.lastPathComponent)
-                let targetUsdzLocation = projectDirectory.appendingPathComponent(usdzURL.lastPathComponent)
-                
-                if FileManager.default.fileExists(atPath: currentUsdzLocation.path) {
-                    if FileManager.default.fileExists(atPath: targetUsdzLocation.path) {
-                        try FileManager.default.removeItem(at: targetUsdzLocation)
-                    }
-                    try FileManager.default.moveItem(at: currentUsdzLocation, to: targetUsdzLocation)
-                    print("DocumentBrowserViewController: ✅ Moved USDZ to project directory: \(projectName)/\(usdzURL.lastPathComponent)")
-                }
-                
-                // Move the metadata file to project directory
+        // Find the JSON file in the same directory as the USDZ file
+        let tempDirectory = usdzURL.deletingLastPathComponent()
+        let jsonURL = tempDirectory.appendingPathComponent(projectName + ".json")
+        
+        do {
+            // Create project directory if it doesn't exist
+            if !FileManager.default.fileExists(atPath: projectDirectory.path) {
+                try FileManager.default.createDirectory(at: projectDirectory, withIntermediateDirectories: true, attributes: nil)
+                print("DocumentBrowserViewController: ✅ Created project directory: \(projectName)")
+            }
+            
+            // Move the USDZ file directly from temp to project directory
+            let targetUsdzLocation = projectDirectory.appendingPathComponent(usdzURL.lastPathComponent)
+            if FileManager.default.fileExists(atPath: targetUsdzLocation.path) {
+                try FileManager.default.removeItem(at: targetUsdzLocation)
+            }
+            try FileManager.default.moveItem(at: usdzURL, to: targetUsdzLocation)
+            print("DocumentBrowserViewController: ✅ Saved USDZ locally to: \(projectName)/\(usdzURL.lastPathComponent)")
+            
+            // Move the metadata file to project directory if it exists
+            if let metadataURL = metadataURL {
                 let targetMetadataURL = projectDirectory.appendingPathComponent(metadataURL.lastPathComponent)
                 if FileManager.default.fileExists(atPath: targetMetadataURL.path) {
                     try FileManager.default.removeItem(at: targetMetadataURL)
                 }
                 try FileManager.default.moveItem(at: metadataURL, to: targetMetadataURL)
-                print("DocumentBrowserViewController: ✅ Moved JSON to project directory: \(projectName)/\(metadataURL.lastPathComponent)")
-                
-                print("DocumentBrowserViewController: ✅ Project '\(projectName)' organized in dedicated folder")
-                
-            } catch {
-                print("DocumentBrowserViewController: ❌ Failed to organize files in project directory: \(error)")
+                print("DocumentBrowserViewController: ✅ Saved PLIST locally to: \(projectName)/\(metadataURL.lastPathComponent)")
             }
+            
+            // Move the JSON file to project directory if it exists
+            if FileManager.default.fileExists(atPath: jsonURL.path) {
+                let targetJsonURL = projectDirectory.appendingPathComponent(jsonURL.lastPathComponent)
+                if FileManager.default.fileExists(atPath: targetJsonURL.path) {
+                    try FileManager.default.removeItem(at: targetJsonURL)
+                }
+                try FileManager.default.moveItem(at: jsonURL, to: targetJsonURL)
+                print("DocumentBrowserViewController: ✅ Saved JSON locally to: \(projectName)/\(jsonURL.lastPathComponent)")
+            }
+            
+            print("DocumentBrowserViewController: ✅ All files saved locally in project '\(projectName)' folder")
+            
+        } catch {
+            print("DocumentBrowserViewController: ❌ Failed to save files locally: \(error)")
         }
     }
 
@@ -133,13 +142,11 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
             onScanComplete: { [weak self] (capturedRoom, usdzURL, metadataURL) in
                 // Dismiss the RoomScanningView
                 self?.presentedViewController?.dismiss(animated: true, completion: {
-                    // First import the USDZ through the official mechanism to local storage
-                    self?.importHandler?(usdzURL, .move)
+                    // Save USDZ, PLIST, and JSON files directly to local documents directory
+                    self?.saveScanFilesLocally(usdzURL: usdzURL, metadataURL: metadataURL)
                     
-                    // Then import the metadata to the same local location
-                    if let metadataURL = metadataURL {
-                        self?.importMetadataToSameLocation(from: metadataURL, usdzURL: usdzURL)
-                    }
+                    // Complete the document creation process without importing anything through the system
+                    self?.importHandler?(nil, .none)
                     
                     // Clear the handler and temp URL after use
                     self?.importHandler = nil
@@ -189,5 +196,12 @@ class DocumentBrowserViewController: UIDocumentBrowserViewController, UIDocument
         let previewController = QLPreviewController()
         previewController.dataSource = self
         present(previewController, animated: true)
+    }
+}
+
+
+extension SCNVector3: Equatable {
+    public static func == (lhs: SCNVector3, rhs: SCNVector3) -> Bool {
+        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z
     }
 }

@@ -17,6 +17,7 @@ struct DocumentBrowserView: UIViewControllerRepresentable {
         // Update the controller if needed
     }
 
+
     // Coordinator class to act as the delegate
     func makeCoordinator() -> Coordinator {
         Coordinator(self)

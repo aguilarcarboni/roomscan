@@ -9,7 +9,6 @@ import SwiftUI
 import RoomPlan
 import ARKit
 
-// Define an Identifiable struct to hold the scan directory URL
 struct ScanInfo: Identifiable {
     let id = UUID()
     let directoryURL: URL

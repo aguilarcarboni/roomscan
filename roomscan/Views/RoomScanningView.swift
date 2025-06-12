@@ -2,152 +2,148 @@ import SwiftUI
 import RoomPlan
 
 struct RoomScanningView: View {
-    
     @Environment(\.dismiss) private var dismiss
-    var scanDirectoryURL: URL
     
-    @State private var capturedRoom: CapturedRoom?
-    @State private var scanningViewRef: RoomCaptureRepresentableRef? = nil
+    let scanDirectoryURL: URL
+    let onScanComplete: (_ capturedRoom: CapturedRoom, _ usdzURL: URL, _ metadataURL: URL?) -> Void
+    
     @State private var showingFolderNamePrompt = false
     @State private var folderNameInput = ""
-    
-    var onScanComplete: (_ capturedRoom: CapturedRoom, _ usdzURL: URL, _ metadataURL: URL?) -> Void
+    @State private var isScanning = true
+    @State private var capturedRoom: CapturedRoom?
+    @State private var captureViewRef: RoomCaptureView?
     
     var body: some View {
         ZStack {
-            // Single view that handles both scanning and preview
-            RoomCaptureRepresentable(
-                reference: $scanningViewRef,
-                onScanComplete: { capturedRoom in
-                    self.capturedRoom = capturedRoom
-                },
-                onCancel: {
-                    dismiss()
-                }
-            )
+            // Use RoomCaptureView directly as Apple recommends
+             RoomCaptureViewRepresentable(
+                 captureViewRef: $captureViewRef,
+                 onScanComplete: { room in
+                     capturedRoom = room
+                     isScanning = false
+                 },
+                 onCancel: {
+                     dismiss()
+                 }
+             )
             .ignoresSafeArea()
-            .overlay(
-                VStack {
-                    HStack {
-                        Button("Cancel") {
-                            dismiss()
-                        }
-                        .padding()
-                        .buttonStyle(PlainButtonStyle())
-                        .foregroundColor(.white)
-                        .background(Color.clear)
-                        
-                        Spacer()
-                        
-                        // Show Done or Export button based on state
-                        if capturedRoom == nil {
-                            Button("Preview") {
-                                if let scanningViewRef = scanningViewRef {
-                                    scanningViewRef.finishScanning()
-                                } else {
-                                    print("RoomScanningView: ERROR - scanningViewRef is nil on 'Preview' tap.")
-                                }
-                            }
-                            .padding()
-                            .buttonStyle(PlainButtonStyle())
-                            .background(Color.clear)
-                            .fontWeight(Font.Weight.bold)
-                        } else {
-                            Button("Done") {
-                                showingFolderNamePrompt = true
-                            }
-                            .padding()
-                            .buttonStyle(PlainButtonStyle())
-                            .background(Color.clear)
-                            .fontWeight(Font.Weight.bold)
-                        }
-                    }
-                    .padding(.top)
-                    
-                    Spacer()
-                }
-            )
+            
+                         // Simple overlay with controls
+             VStack {
+                 HStack {
+                     Button("Cancel") {
+                         dismiss()
+                     }
+                     .padding()
+                     .buttonStyle(.plain)
+                     .foregroundColor(.white)
+                     .background(Color.clear)
+                     .cornerRadius(8)
+                     
+                     Spacer()
+                     
+                     if isScanning {
+                         Button("Done") {
+                             finishScanning()
+                         }
+                         .padding()
+                         .buttonStyle(.plain)
+                         .foregroundColor(.white)
+                         .background(Color.clear)
+                         .cornerRadius(8)
+                     } else {
+                         Button("Export") {
+                             showingFolderNamePrompt = true
+                         }
+                         .padding()
+                         .buttonStyle(.plain)
+                         .foregroundColor(.white)
+                         .background(Color.clear)
+                         .cornerRadius(8)
+                     }
+                 }
+                 .padding()
+                 
+                 Spacer()
+             }
         }
         .navigationBarHidden(true)
-        .alert("Export Scan", isPresented: $showingFolderNamePrompt, actions: {
+        .alert("Export Scan", isPresented: $showingFolderNamePrompt) {
             TextField("Project Name", text: $folderNameInput)
             Button("Export") {
-                finishScan(scanDirectoryURL: scanDirectoryURL)
+                exportScan()
             }
             Button("Cancel", role: .cancel) {}
-        }, message: {
+        } message: {
             Text("Enter a project name for your scan.")
-        })
+        }
     }
     
-    private func finishScan(scanDirectoryURL: URL) {
-
-        guard let capturedRoom = capturedRoom else { print("RoomScanningView: finishScan - ERROR: capturedRoom is nil."); return } // Modified log
+    private func finishScanning() {
+        captureViewRef?.captureSession.stop()
+    }
+    
+    private func exportScan() {
+        guard let room = capturedRoom else {
+            print("RoomScanningView: No captured room to export")
+            return
+        }
         
         let trimmedName = folderNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let scanName = trimmedName.isEmpty ? "NewScan" : trimmedName
+        let scanName = trimmedName.isEmpty ? "RoomScan" : trimmedName
         let scanURL = scanDirectoryURL.appendingPathComponent(scanName + ".usdz")
-        let metadataURL = scanDirectoryURL.appendingPathComponent(scanName + ".json")
-
+        let metadataURL = scanDirectoryURL.appendingPathComponent(scanName + ".plist")
+        let jsonURL = scanDirectoryURL.appendingPathComponent(scanName + ".json")
+        
         do {
-            // Export with metadata - using .mesh option which is more commonly supported
-            try capturedRoom.export(to: scanURL, metadataURL: metadataURL, modelProvider: nil, exportOptions: .mesh)
-            print("RoomScanningView: ✅ Exported USDZ to temp: \(scanURL.lastPathComponent)")
-            print("RoomScanningView: ✅ Exported metadata to temp: \(metadataURL.lastPathComponent)")
+            // Export USDZ and metadata files
+            try room.export(to: scanURL, metadataURL: metadataURL)
+            print("RoomScanningView: ✅ Exported scan to: \(scanURL.lastPathComponent)")
             
-            // Verify the files were actually created
+            // Export CapturedRoom as JSON
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            if let jsonData = try? encoder.encode(room) {
+                try jsonData.write(to: jsonURL)
+                print("RoomScanningView: ✅ Exported JSON to: \(jsonURL.lastPathComponent)")
+            } else {
+                print("RoomScanningView: ⚠️ Could not encode CapturedRoom to JSON (may not conform to Codable)")
+            }
+            
             let finalMetadataURL: URL?
             if FileManager.default.fileExists(atPath: metadataURL.path) {
-                print("RoomScanningView: ✅ Both files ready for import to RoomScan app space")
                 finalMetadataURL = metadataURL
             } else {
-                print("RoomScanningView: ⚠️ Metadata file missing, importing USDZ only")
                 finalMetadataURL = nil
             }
             
-            onScanComplete(capturedRoom, scanURL, finalMetadataURL)
+            onScanComplete(room, scanURL, finalMetadataURL)
         } catch {
-            print("RoomScanningView: finishScan - Failed to export room: \(error)")
+            print("RoomScanningView: Failed to export scan: \(error)")
         }
     }
 }
 
-// A reference class to control the RoomCaptureView from outside
-class RoomCaptureRepresentableRef {
-    var captureView: RoomCaptureView?
-    
-    func finishScanning() {
-        print("RoomCaptureRepresentableRef: finishScanning() called, calling captureSession.stop().") // Modified log
-        captureView?.captureSession.stop()
-    }
-}
-
-// A UIViewRepresentable for RoomCaptureView
-struct RoomCaptureRepresentable: UIViewRepresentable {
-    @Binding var reference: RoomCaptureRepresentableRef?
-    var onScanComplete: (CapturedRoom) -> Void
-    var onCancel: () -> Void
+// MARK: - RoomCaptureView Wrapper
+struct RoomCaptureViewRepresentable: UIViewRepresentable {
+    @Binding var captureViewRef: RoomCaptureView?
+    let onScanComplete: (CapturedRoom) -> Void
+    let onCancel: () -> Void
     
     func makeUIView(context: Context) -> RoomCaptureView {
-        let roomCaptureView = RoomCaptureView(frame: .zero)
-        roomCaptureView.delegate = context.coordinator
+        let captureView = RoomCaptureView(frame: .zero)
+        captureView.delegate = context.coordinator
         
-        // Create and assign the reference
-        let ref = RoomCaptureRepresentableRef()
-        ref.captureView = roomCaptureView
-        // Update reference binding. DispatchQueue.main.async can be safer for @Binding updates from makeUIView.
+        // Create configuration and start session as Apple recommends
+        let config = RoomCaptureSession.Configuration()
+        captureView.captureSession.run(configuration: config)
+        
+        // Store reference for later use
         DispatchQueue.main.async {
-            self.reference = ref
+            self.captureViewRef = captureView
         }
         
-        // Create a mutable configuration
-        var configuration = RoomCaptureSession.Configuration()
-        configuration.isCoachingEnabled = true
-        
-        // Start the session when the view is created
-        roomCaptureView.captureSession.run(configuration: configuration)
-        
-        return roomCaptureView
+        return captureView
     }
     
     func updateUIView(_ uiView: RoomCaptureView, context: Context) {
@@ -158,21 +154,21 @@ struct RoomCaptureRepresentable: UIViewRepresentable {
         Coordinator(parent: self)
     }
     
-    // This is important for cleanup
     static func dismantleUIView(_ uiView: RoomCaptureView, coordinator: Coordinator) {
         uiView.captureSession.stop()
     }
     
-    // Implement NSCoding for Coordinator
-    @objc(RoomCaptureCoordinator) class Coordinator: NSObject, RoomCaptureViewDelegate, NSCoding {
-        var parent: RoomCaptureRepresentable
+    // MARK: - Coordinator
+    @objc(RoomCaptureCoordinator) 
+    class Coordinator: NSObject, RoomCaptureViewDelegate, NSCoding {
+        let parent: RoomCaptureViewRepresentable
         
-        init(parent: RoomCaptureRepresentable) {
+        init(parent: RoomCaptureViewRepresentable) {
             self.parent = parent
             super.init()
         }
         
-        // NSCoding implementation
+        // MARK: - NSCoding
         required init?(coder: NSCoder) {
             fatalError("Coordinator doesn't support NSCoding")
         }
@@ -181,27 +177,25 @@ struct RoomCaptureRepresentable: UIViewRepresentable {
             // Nothing to encode
         }
         
-        // Process the room data and handle results
+        // MARK: - RoomCaptureViewDelegate
+        
         func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
-            // Return true to let RoomCaptureView process the data
+            // Let RoomCaptureView handle the processing
             return true
         }
         
-        // Handle the processed result
         func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
             if let error = error {
-                print("Coordinator: captureView(didPresent:) ERROR - \(error.localizedDescription)") // Modified log
+                print("RoomCaptureView processing error: \(error)")
                 return
             }
-            print("Coordinator: captureView(didPresent:) successfully processed room. Calling parent.onScanComplete.") // Added log
+            
+            print("RoomCaptureView: Successfully captured and processed room")
             parent.onScanComplete(processedResult)
         }
         
-        // Add didFailWithError to catch other errors
         func captureView(_ captureView: RoomCaptureView, didFailWithError error: Error) {
-            print("Coordinator: captureView(didFailWithError:) called with error: \(error.localizedDescription)")
-            // Optionally, inform the parent/user about the failure
-            // parent.onCancel() or a specific error handler
+            print("RoomCaptureView failed with error: \(error)")
         }
     }
 } 
