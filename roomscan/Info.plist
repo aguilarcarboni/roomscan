@@ -40,7 +40,5 @@
 			</dict>
 		</dict>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>Camera access is not required for 3D model viewing and editing in this app.</string>
 </dict>
 </plist>
