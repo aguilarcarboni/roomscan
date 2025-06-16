@@ -2,6 +2,7 @@ import UIKit
 import SceneKit
 import ModelIO
 import SceneKit.ModelIO
+import UniformTypeIdentifiers
 
 // MARK: - Editor State
 enum EditorState {
@@ -14,7 +15,7 @@ enum EditorState {
 }
 
 
-class SceneKit3DEditorViewController: UIViewController {
+class SceneKit3DEditorViewController: UIViewController, UIDocumentPickerDelegate {
     
     // MARK: - Properties
     private var sceneView: SCNView!
@@ -60,6 +61,10 @@ class SceneKit3DEditorViewController: UIViewController {
     
     // Model manipulation
     private var originalModelTransform: SCNMatrix4 = SCNMatrix4Identity
+    
+    // Metadata storage
+    private var objectMetadata: [String: [String: Any]] = [:]
+    private var objectMapping: [String: String] = [:] // Maps object names to metadata keys
     
     // Callback for dismissal
     var onDismiss: (() -> Void)?
@@ -554,11 +559,10 @@ class SceneKit3DEditorViewController: UIViewController {
             print("❌ Error loading USDZ model: \(error.localizedDescription)")
             showErrorAlert(message: "Failed to load the 3D model: \(error.localizedDescription)")
         }
+        
+        // Load metadata
+        loadMetadata()
     }
-    
-
-    
-
     
     private func centerAndScaleModel(_ node: SCNNode) {
         // Get the accurate bounding box for the entire model hierarchy
@@ -686,6 +690,340 @@ class SceneKit3DEditorViewController: UIViewController {
         )
     }
     
+    // MARK: - Metadata Loading
+    private func loadMetadata() {
+        guard let modelURL = modelURL else {
+            print("❌ No model URL provided for metadata loading")
+            return
+        }
+        
+        let modelDirectory = modelURL.deletingLastPathComponent()
+        let modelFileName = modelURL.deletingPathExtension().lastPathComponent
+        
+        print("🔍 Looking for metadata files in: \(modelDirectory.path)")
+        print("🔍 Model filename: \(modelFileName)")
+        
+        // Look for JSON metadata file
+        let jsonURL = modelDirectory.appendingPathComponent("\(modelFileName).json")
+        print("🔍 Checking for JSON file: \(jsonURL.path)")
+        loadJSONMetadata(from: jsonURL)
+        
+        // Look for PLIST mapping file
+        let plistURL = modelDirectory.appendingPathComponent("\(modelFileName).plist")
+        print("🔍 Checking for PLIST file: \(plistURL.path)")
+        loadPListMapping(from: plistURL)
+        
+        // Log current metadata state
+        print("📊 Total metadata objects loaded: \(objectMetadata.count)")
+        print("📊 Total object mappings loaded: \(objectMapping.count)")
+        
+        if !objectMetadata.isEmpty {
+            print("📋 Metadata keys: \(Array(objectMetadata.keys))")
+        }
+        if !objectMapping.isEmpty {
+            print("📋 Mapping keys: \(Array(objectMapping.keys))")
+        }
+        
+        // Apply metadata to loaded nodes
+        applyMetadataToNodes()
+    }
+    
+    private func loadJSONMetadata(from url: URL) {
+        print("🔄 Attempting to load JSON metadata from: \(url.path)")
+        
+        // First check if file exists at all (this works without security access)
+        let fileExists = FileManager.default.fileExists(atPath: url.path)
+        print("📁 JSON file exists: \(fileExists)")
+        
+        if !fileExists {
+            print("⚠️ JSON metadata file does not exist at path: \(url.path)")
+            return
+        }
+        
+        // Try multiple access strategies
+        
+        // Strategy 1: Use the original USDZ file's security scope to access the directory
+        if modelURL!.startAccessingSecurityScopedResource() {
+            defer { modelURL!.stopAccessingSecurityScopedResource() }
+            print("🔓 Using USDZ file security scope to access directory")
+            
+            if loadJSONMetadataWithAccess(from: url) {
+                return
+            }
+        }
+        
+        // Strategy 2: Try parent directory access
+        let parentURL = modelURL!.deletingLastPathComponent()
+        if parentURL.startAccessingSecurityScopedResource() {
+            defer { parentURL.stopAccessingSecurityScopedResource() }
+            print("🔓 Using parent directory security scope")
+            
+            if loadJSONMetadataWithAccess(from: url) {
+                return
+            }
+        }
+        
+        // Strategy 3: Try direct file access
+        print("🔄 Trying direct JSON file access...")
+        if url.startAccessingSecurityScopedResource() {
+            defer { url.stopAccessingSecurityScopedResource() }
+            print("🔓 Using direct file security scope")
+            
+            if loadJSONMetadataWithAccess(from: url) {
+                return
+            }
+        }
+        
+        // All strategies failed
+        print("❌ All JSON file access strategies failed - iOS sandbox restrictions prevent access")
+        print("💡 Solution: Place JSON file in same location as USDZ and grant folder access, or select JSON file separately")
+    }
+    
+    private func loadJSONMetadataWithAccess(from url: URL) -> Bool {
+        do {
+            let jsonData = try Data(contentsOf: url)
+            print("📁 JSON file size: \(jsonData.count) bytes")
+            
+            // First try to parse as any valid JSON to see what we have
+            let jsonObject = try JSONSerialization.jsonObject(with: jsonData, options: [])
+            
+            print("🔍 JSON root type: \(type(of: jsonObject))")
+            
+            // Try to parse as nested room scan JSON format
+            if let rootDict = jsonObject as? [String: Any] {
+                print("✅ Parsed as nested JSON dictionary with \(rootDict.count) top-level keys")
+                print("🔍 Top-level keys: \(Array(rootDict.keys))")
+                
+                // Try to extract metadata from nested structure
+                var extractedMetadata: [String: [String: Any]] = [:]
+                
+                // Look for metadata in different sections
+                let sectionsToCheck = ["floors", "walls", "objects", "furniture", "windows", "doors", "openings", "elements", "items"]
+                
+                for sectionName in sectionsToCheck {
+                    if let section = rootDict[sectionName] {
+                        print("🔍 Found section: \(sectionName) (type: \(type(of: section)))")
+                        
+                        // Handle different section formats
+                        if let sectionDict = section as? [String: Any] {
+                            // Section is a dictionary - extract all entries
+                            print("   Section has \(sectionDict.count) entries")
+                            
+                            for (key, value) in sectionDict {
+                                if let valueDict = value as? [String: Any] {
+                                    extractedMetadata[key] = valueDict
+                                    print("   📋 Extracted: \(key)")
+                                }
+                            }
+                            
+                        } else if let sectionArray = section as? [[String: Any]] {
+                            // Section is an array - extract all items
+                            print("   Section has \(sectionArray.count) items")
+                            
+                            for (index, item) in sectionArray.enumerated() {
+                                // Try different identifier fields in order of preference
+                                var extractedKey: String?
+                                var extractedValue = item
+                                
+                                if let identifier = item["identifier"] as? String {
+                                    extractedKey = identifier
+                                    print("   📋 Found identifier: \(identifier)")
+                                } else if let id = item["id"] as? String {
+                                    extractedKey = id
+                                    print("   📋 Found id: \(id)")
+                                } else if let uuid = item["uuid"] as? String {
+                                    extractedKey = uuid
+                                    print("   📋 Found uuid: \(uuid)")
+                                } else if let name = item["name"] as? String {
+                                    extractedKey = name
+                                    print("   📋 Found name: \(name)")
+                                } else {
+                                    extractedKey = "\(sectionName)_\(index)"
+                                    print("   📋 Using fallback key: \(extractedKey!)")
+                                }
+                                
+                                if let key = extractedKey {
+                                    extractedMetadata[key] = extractedValue
+                                    print("   ✅ Extracted: \(key)")
+                                    
+                                    // Log some details about what we extracted
+                                    if let identifier = item["identifier"] as? String {
+                                        print("      UUID: \(identifier)")
+                                    }
+                                    if let category = item["category"] as? String {
+                                        print("      Category: \(category)")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Also check if the root level contains UUID-keyed entries
+                for (key, value) in rootDict {
+                    // Check if key looks like a UUID
+                    if key.contains("-") && key.count > 30, let valueDict = value as? [String: Any] {
+                        extractedMetadata[key] = valueDict
+                        print("   📋 Found UUID-keyed entry: \(key)")
+                    }
+                }
+                
+                if !extractedMetadata.isEmpty {
+                    objectMetadata = extractedMetadata
+                    print("✅ Extracted \(extractedMetadata.count) metadata entries from nested JSON")
+                    
+                    // Log first few extracted entries
+                    for (index, (key, value)) in extractedMetadata.prefix(3).enumerated() {
+                        print("📋 Extracted[\(index)]: \(key) -> \(Array(value.keys.prefix(5)).joined(separator: ", "))")
+                    }
+                    return true
+                } else {
+                    print("⚠️ Could not extract any metadata from nested JSON structure")
+                    print("💡 Try checking the JSON file structure manually")
+                    return false
+                }
+                
+            } else {
+                print("❌ JSON is not a dictionary format")
+                print("   Got: \(type(of: jsonObject))")
+                return false
+            }
+            
+        } catch {
+            print("❌ Could not load JSON metadata with current access: \(error.localizedDescription)")
+            return false
+        }
+        
+        return false
+    }
+    
+    private func loadPListMapping(from url: URL) {
+        print("🔄 Attempting to load PLIST mapping from: \(url.path)")
+        
+        // First check if file exists at all
+        let fileExists = FileManager.default.fileExists(atPath: url.path)
+        print("📁 PLIST file exists: \(fileExists)")
+        
+        if !fileExists {
+            print("⚠️ PLIST mapping file does not exist at path: \(url.path)")
+            return
+        }
+        
+        // Try multiple access strategies (same as JSON)
+        
+        // Strategy 1: Use the original USDZ file's security scope
+        if modelURL!.startAccessingSecurityScopedResource() {
+            defer { modelURL!.stopAccessingSecurityScopedResource() }
+            print("🔓 Using USDZ file security scope for PLIST access")
+            
+            if loadPListMappingWithAccess(from: url) {
+                return
+            }
+        }
+        
+        // Strategy 2: Try parent directory access
+        let parentURL = modelURL!.deletingLastPathComponent()
+        if parentURL.startAccessingSecurityScopedResource() {
+            defer { parentURL.stopAccessingSecurityScopedResource() }
+            print("🔓 Using parent directory security scope for PLIST")
+            
+            if loadPListMappingWithAccess(from: url) {
+                return
+            }
+        }
+        
+        // Strategy 3: Try direct file access
+        print("🔄 Trying direct PLIST file access...")
+        if url.startAccessingSecurityScopedResource() {
+            defer { url.stopAccessingSecurityScopedResource() }
+            print("🔓 Using direct file security scope for PLIST")
+            
+            if loadPListMappingWithAccess(from: url) {
+                return
+            }
+        }
+        
+        // All strategies failed
+        print("❌ All PLIST file access strategies failed - iOS sandbox restrictions prevent access")
+        print("💡 Solution: Place PLIST file in same location as USDZ and grant folder access, or select PLIST file separately")
+    }
+    
+    private func loadPListMappingWithAccess(from url: URL) -> Bool {
+        do {
+            let plistData = try Data(contentsOf: url)
+            print("📁 PLIST file size: \(plistData.count) bytes")
+            
+            if let plistObject = try PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: String] {
+                objectMapping = plistObject
+                print("✅ Loaded object mapping for \(objectMapping.count) objects")
+                
+                // Log first few mapping entries for debugging
+                for (index, (key, value)) in objectMapping.prefix(3).enumerated() {
+                    print("🗺️ Mapping[\(index)]: \(key) -> \(value)")
+                }
+                return true
+            } else {
+                print("❌ PLIST file exists but couldn't parse as expected dictionary format")
+                return false
+            }
+        } catch {
+            print("❌ Could not load PLIST mapping with current access: \(error.localizedDescription)")
+            return false
+        }
+    }
+    
+    private func applyMetadataToNodes() {
+        print("🔄 Starting metadata application to scene nodes...")
+        var totalNodes = 0
+        var nodesWithNames = 0
+        var nodesWithMetadata = 0
+        
+        // Recursively find all nodes with geometry and try to assign metadata
+        func assignMetadata(to node: SCNNode, depth: Int = 0) {
+            totalNodes += 1
+            let indent = String(repeating: "  ", count: depth)
+            
+            if let nodeName = node.name, !nodeName.isEmpty {
+                nodesWithNames += 1
+                print("\(indent)🏷️ Node[\(totalNodes)]: '\(nodeName)' (has geometry: \(node.geometry != nil))")
+                
+                // Check if we have a mapping for this node name
+                if let metadataKey = objectMapping[nodeName],
+                   let metadata = objectMetadata[metadataKey] {
+                    // Store metadata in the node using setValue(_:forKey:)
+                    node.setValue(metadata, forKey: "metadata")
+                    nodesWithMetadata += 1
+                    print("\(indent)✅ Applied mapped metadata to node: \(nodeName) -> \(metadataKey)")
+                } else {
+                    // Try direct lookup by node name
+                    if let metadata = objectMetadata[nodeName] {
+                        node.setValue(metadata, forKey: "metadata")
+                        nodesWithMetadata += 1
+                        print("\(indent)✅ Applied direct metadata to node: \(nodeName)")
+                    } else {
+                        print("\(indent)⚠️ No metadata found for node: \(nodeName)")
+                    }
+                }
+            } else {
+                print("\(indent)🔍 Node[\(totalNodes)]: <unnamed> (has geometry: \(node.geometry != nil))")
+            }
+            
+            // Apply to all child nodes
+            for child in node.childNodes {
+                assignMetadata(to: child, depth: depth + 1)
+            }
+        }
+        
+        assignMetadata(to: scene.rootNode)
+        
+        print("📊 Metadata application summary:")
+        print("   Total nodes processed: \(totalNodes)")
+        print("   Nodes with names: \(nodesWithNames)")
+        print("   Nodes with metadata applied: \(nodesWithMetadata)")
+    }
+    
+
+    
     // MARK: - Gesture Setup
     private func setupTapGesture() {
         // Tap gesture for selection
@@ -732,7 +1070,18 @@ class SceneKit3DEditorViewController: UIViewController {
         // Update editor state
         editorState = .meshSelected
         
-        print("Selected node: \(node.name ?? "unnamed")")
+        // Debug metadata retrieval
+        let nodeName = node.name ?? "unnamed"
+        let metadata = node.value(forKey: "metadata") as? [String: Any]
+        
+        print("🎯 Selected node: '\(nodeName)'")
+        print("   Has metadata: \(metadata != nil)")
+        if let metadata = metadata {
+            print("   Metadata keys: \(Array(metadata.keys))")
+            print("   Metadata count: \(metadata.count)")
+        } else {
+            print("   No metadata found on selected node")
+        }
     }
     
     private func deselectNode() {
@@ -868,8 +1217,38 @@ class SceneKit3DEditorViewController: UIViewController {
         let scale = selectedNode.scale
         let rotation = selectedNode.rotation
         
+        // Get metadata if available using value(forKey:)
+        let metadata = selectedNode.value(forKey: "metadata") as? [String: Any]
+        
+        // Create basic info message
+        var message = "Position: \(String(format: "%.2f, %.2f, %.2f", position.x, position.y, position.z))\n"
+        message += "Scale: \(String(format: "%.2f, %.2f, %.2f", scale.x, scale.y, scale.z))\n"
+        message += "Rotation: \(String(format: "%.2f, %.2f, %.2f, %.2f", rotation.x, rotation.y, rotation.z, rotation.w))"
+        
         // Create action sheet for node information
-        let alert = UIAlertController(title: "\(nodeName)", message: "Current position: \(position)", preferredStyle: .actionSheet)
+        let alert = UIAlertController(title: "\(nodeName)", message: message, preferredStyle: .actionSheet)
+        
+        // Add "Show Metadata" button if metadata exists
+        if let metadata = metadata {
+            alert.addAction(UIAlertAction(title: "Show Metadata", style: .default) { _ in
+                self.showMetadataAlert(for: selectedNode, metadata: metadata)
+            })
+            
+            alert.addAction(UIAlertAction(title: "Show Detailed Info", style: .default) { _ in
+                self.showDetailedNodeInfo(for: selectedNode)
+            })
+        } else {
+            alert.addAction(UIAlertAction(title: "No Metadata Available", style: .default) { _ in
+                self.showAlert(title: "No Metadata", message: "This object does not have any associated metadata.")
+            })
+            
+            // Add option to load metadata files manually
+            alert.addAction(UIAlertAction(title: "Load Metadata Files", style: .default) { _ in
+                self.showMetadataLoadingOptions()
+            })
+        }
+        
+        alert.addAction(UIAlertAction(title: "Close", style: .cancel))
         
         // For iPad
         if let popover = alert.popoverPresentationController {
@@ -877,6 +1256,133 @@ class SceneKit3DEditorViewController: UIViewController {
         }
         
         present(alert, animated: true)
+    }
+    
+    private func showDetailedNodeInfo(for node: SCNNode) {
+        let nodeName = node.name ?? "Unnamed Node"
+        let metadata = node.value(forKey: "metadata") as? [String: Any]
+        
+        // Create a detailed view controller
+        let detailVC = UIViewController()
+        detailVC.modalPresentationStyle = .pageSheet
+        
+        // Create scroll view for content
+        let scrollView = UIScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        detailVC.view.addSubview(scrollView)
+        
+        // Create content view
+        let contentView = UIView()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(contentView)
+        
+        // Create text view for metadata
+        let textView = UITextView()
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.isEditable = false
+        textView.font = UIFont.systemFont(ofSize: 16)
+        textView.backgroundColor = UIColor.systemBackground
+        
+        // Build detailed content
+        var content: String = "Object: \(nodeName)\n\n"
+        
+        // Transform information
+        content += "=== Transform Information ===\n"
+        content += "Position: \(String(format: "%.3f, %.3f, %.3f", node.position.x, node.position.y, node.position.z))\n"
+        content += "Scale: \(String(format: "%.3f, %.3f, %.3f", node.scale.x, node.scale.y, node.scale.z))\n"
+        content += "Rotation: \(String(format: "%.3f, %.3f, %.3f, %.3f", node.rotation.x, node.rotation.y, node.rotation.z, node.rotation.w))\n\n"
+        
+        // Metadata information
+        if let metadata = metadata {
+            content += "=== Metadata ===\n"
+            let sortedKeys: [String] = metadata.keys.sorted()
+            
+            for key in sortedKeys {
+                let value = metadata[key]
+                let displayValue = formatMetadataValue(value, detailed: true)
+                content += "\(key):\n  \(displayValue)\n\n"
+            }
+        } else {
+            content += "=== Metadata ===\nNo metadata available for this object.\n"
+        }
+        
+        textView.text = content
+        contentView.addSubview(textView)
+        
+        // Add navigation bar with close button
+        let navBar = UINavigationBar()
+        navBar.translatesAutoresizingMaskIntoConstraints = false
+        detailVC.view.addSubview(navBar)
+        
+        let navItem = UINavigationItem(title: "Object Details")
+        let closeButton = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(dismissDetailVC))
+        // Store detailVC reference in closeButton's target via associated object or closure - simplest is to dismiss self, so keep a property or use closure
+        navItem.rightBarButtonItem = closeButton
+        navBar.setItems([navItem], animated: false)
+        
+        // Store detailVC in a property for dismissing
+        self.detailViewControllerToDismiss = detailVC
+        
+        // Set up constraints
+        NSLayoutConstraint.activate([
+            navBar.topAnchor.constraint(equalTo: detailVC.view.safeAreaLayoutGuide.topAnchor),
+            navBar.leadingAnchor.constraint(equalTo: detailVC.view.leadingAnchor),
+            navBar.trailingAnchor.constraint(equalTo: detailVC.view.trailingAnchor),
+            
+            scrollView.topAnchor.constraint(equalTo: navBar.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: detailVC.view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: detailVC.view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: detailVC.view.bottomAnchor),
+            
+            contentView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            contentView.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+            
+            textView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
+            textView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            textView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
+            textView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -16),
+            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: 400)
+        ])
+        
+        present(detailVC, animated: true)
+    }
+    
+    // Property to hold reference to presented detail VC for dismissal
+    private var detailViewControllerToDismiss: UIViewController?
+    
+    @objc private func dismissDetailVC() {
+        detailViewControllerToDismiss?.dismiss(animated: true)
+        detailViewControllerToDismiss = nil
+    }
+    
+    private func formatMetadataValue(_ value: Any?, detailed: Bool = false) -> String {
+        guard let value = value else { return "nil" }
+        
+        if let stringValue = value as? String {
+            return detailed ? stringValue : (stringValue.count > 50 ? String(stringValue.prefix(50)) + "..." : stringValue)
+        } else if let numberValue = value as? NSNumber {
+            return numberValue.stringValue
+        } else if let boolValue = value as? Bool {
+            return boolValue ? "true" : "false"
+        } else if let arrayValue = value as? [Any] {
+            if detailed {
+                return arrayValue.map { formatMetadataValue($0, detailed: true) }.joined(separator: ", ")
+            } else {
+                return "[\(arrayValue.count) items]"
+            }
+        } else if let dictValue = value as? [String: Any] {
+            if detailed {
+                return dictValue.map { "\($0.key): \(formatMetadataValue($0.value, detailed: true))" }.joined(separator: ", ")
+            } else {
+                return "{\(dictValue.count) properties}"
+            }
+        } else {
+            let description = String(describing: value)
+            return detailed ? description : (description.count > 50 ? String(description.prefix(50)) + "..." : description)
+        }
     }
     
         @objc private func showTransformTools() {
@@ -1266,10 +1772,164 @@ class SceneKit3DEditorViewController: UIViewController {
         }
     }
     
+    private func showMetadataAlert(for node: SCNNode, metadata: [String: Any]) {
+        let nodeName = node.name ?? "Unnamed Node"
+        
+        // Build metadata content
+        var metadataText = ""
+        let sortedKeys = metadata.keys.sorted()
+        
+        for (index, key) in sortedKeys.enumerated() {
+            let value = metadata[key]
+            let displayValue = formatMetadataValue(value, detailed: false)
+            metadataText += "\(key): \(displayValue)"
+            
+            // Add newline if not the last item
+            if index < sortedKeys.count - 1 {
+                metadataText += "\n"
+            }
+        }
+        
+        // Create alert with metadata
+        let alert = UIAlertController(
+            title: "Metadata - \(nodeName)", 
+            message: metadataText.isEmpty ? "No metadata properties available." : metadataText, 
+            preferredStyle: .alert
+        )
+        
+        // Add copy button if there's metadata
+        if !metadataText.isEmpty {
+            alert.addAction(UIAlertAction(title: "Copy", style: .default) { _ in
+                UIPasteboard.general.string = metadataText
+                print("📋 Metadata copied to clipboard")
+            })
+        }
+        
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        
+        present(alert, animated: true)
+    }
+    
+    private func showMetadataLoadingOptions() {
+        let alert = UIAlertController(
+            title: "Load Metadata Files",
+            message: "Choose how to load metadata files for this model. Files should be named the same as your USDZ file with .json or .plist extensions.",
+            preferredStyle: .actionSheet
+        )
+        
+        alert.addAction(UIAlertAction(title: "Select JSON File", style: .default) { _ in
+            self.presentDocumentPicker(for: "public.json", title: "Select JSON Metadata File") { url in
+                self.loadJSONMetadataFromSelectedFile(url)
+            }
+        })
+        
+        alert.addAction(UIAlertAction(title: "Select PLIST File", style: .default) { _ in
+            self.presentDocumentPicker(for: "com.apple.property-list", title: "Select PLIST Mapping File") { url in
+                self.loadPListMappingFromSelectedFile(url)
+            }
+        })
+        
+        alert.addAction(UIAlertAction(title: "Select Both Files", style: .default) { _ in
+            self.selectBothMetadataFiles()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        
+        // For iPad
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        
+        present(alert, animated: true)
+    }
+    
+    private func presentDocumentPicker(for type: String, title: String, completion: @escaping (URL) -> Void) {
+        let documentPicker = UIDocumentPickerViewController(forOpeningContentTypes: [UTType(type)!])
+        documentPicker.delegate = self
+        documentPicker.allowsMultipleSelection = false
+        
+        // Store completion handler
+        self.metadataFileSelectionCompletion = completion
+        
+        present(documentPicker, animated: true)
+    }
+    
+    private func selectBothMetadataFiles() {
+        // First select JSON, then PLIST
+        presentDocumentPicker(for: "public.json", title: "Select JSON Metadata File") { jsonURL in
+            self.loadJSONMetadataFromSelectedFile(jsonURL)
+            
+            // After JSON is loaded, ask for PLIST
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.presentDocumentPicker(for: "com.apple.property-list", title: "Select PLIST Mapping File") { plistURL in
+                    self.loadPListMappingFromSelectedFile(plistURL)
+                }
+            }
+        }
+    }
+    
+    private func loadJSONMetadataFromSelectedFile(_ url: URL) {
+        print("🔄 Loading JSON metadata from user-selected file: \(url.path)")
+        
+        guard url.startAccessingSecurityScopedResource() else {
+            print("❌ Cannot access user-selected JSON file")
+            showAlert(title: "Access Denied", message: "Cannot access the selected JSON file.")
+            return
+        }
+        
+        defer { url.stopAccessingSecurityScopedResource() }
+        
+        if loadJSONMetadataWithAccess(from: url) {
+            // Reapply metadata to nodes
+            applyMetadataToNodes()
+            showAlert(title: "Success", message: "JSON metadata loaded successfully! Select objects to view their metadata.")
+        } else {
+            showAlert(title: "Error", message: "Failed to load JSON metadata file. Please check the file format.")
+        }
+    }
+    
+    private func loadPListMappingFromSelectedFile(_ url: URL) {
+        print("🔄 Loading PLIST mapping from user-selected file: \(url.path)")
+        
+        guard url.startAccessingSecurityScopedResource() else {
+            print("❌ Cannot access user-selected PLIST file")
+            showAlert(title: "Access Denied", message: "Cannot access the selected PLIST file.")
+            return
+        }
+        
+        defer { url.stopAccessingSecurityScopedResource() }
+        
+        if loadPListMappingWithAccess(from: url) {
+            // Reapply metadata to nodes
+            applyMetadataToNodes()
+            showAlert(title: "Success", message: "PLIST mapping loaded successfully! Select objects to view their metadata.")
+        } else {
+            showAlert(title: "Error", message: "Failed to load PLIST mapping file. Please check the file format.")
+        }
+    }
+    
+    // Store completion handler for document picker
+    private var metadataFileSelectionCompletion: ((URL) -> Void)?
+    
     private func showAlert(title: String, message: String) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "OK", style: .default))
         present(alert, animated: true)
+    }
+    
+    // MARK: - UIDocumentPickerDelegate
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first,
+              let completion = metadataFileSelectionCompletion else { return }
+        
+        completion(url)
+        metadataFileSelectionCompletion = nil
+    }
+    
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        metadataFileSelectionCompletion = nil
     }
 } 
 
