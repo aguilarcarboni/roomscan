@@ -20,13 +20,26 @@ struct ContentView: View {
     @State private var capturedRooms: [CapturedRoom] = []
     
     var body: some View {
-        DocumentBrowserView(onStartScan: { directoryURL in
-            self.scanInfoForSheet = ScanInfo(directoryURL: directoryURL)
-        })
-        .ignoresSafeArea(edges: .bottom)
+        TabView {
+            // Scan / Documents tab
+            DocumentBrowserView(onStartScan: { directoryURL in
+                self.scanInfoForSheet = ScanInfo(directoryURL: directoryURL)
+            })
+            .ignoresSafeArea(edges: .bottom)
+            .tabItem {
+                Label("Scan", systemImage: "camera.viewfinder")
+            }
+
+            // Wish List tab
+            WishlistContentView()
+                .tabItem {
+                    Label("Wish List", systemImage: "heart")
+                }
+        }
+        // Present the scanning sheet from whichever tab is active
         .sheet(item: $scanInfoForSheet) { info in
             RoomScanningView(
-                scanDirectoryURL: info.directoryURL, 
+                scanDirectoryURL: info.directoryURL,
                 onScanComplete: { capturedRoom, usdzURL, metadataURL in
                     print("ContentView: ✅ Scan complete - files imported to RoomScan app space")
                     self.capturedRooms.append(capturedRoom)
