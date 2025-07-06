@@ -1,13 +1,13 @@
 {
   "fill" : {
-    "automatic-gradient" : "display-p3:0.95686,0.72549,0.25098,1.00000"
+    "automatic-gradient" : "display-p3:0.96078,0.75686,0.35294,1.00000"
   },
   "groups" : [
     {
       "layers" : [
         {
-          "image-name" : "shippingbox.fill.png",
-          "name" : "shippingbox.fill"
+          "image-name" : "house.fill.png",
+          "name" : "house.fill"
         }
       ],
       "shadow" : {

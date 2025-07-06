@@ -12,7 +12,6 @@ struct WishListView: View {
     let wishListItems: [WishListItem]
     @Environment(\.modelContext) private var modelContext
     @State private var showingCreateItem = false
-    @State private var showingCSVImport = false
     
     var body: some View {
         NavigationStack {
@@ -48,20 +47,10 @@ struct WishListView: View {
                         Label("Add Item", systemImage: "plus")
                     }
                 }
-                ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            showingCSVImport = true
-                        } label: {
-                            Label("Import from CSV", systemImage: "doc.text")
-                        }
-                }
             }
         }
         .sheet(isPresented: $showingCreateItem) {
             CreateWishListItemView()
-        }
-        .sheet(isPresented: $showingCSVImport) {
-            WishListCSVImportView()
         }
     }
     

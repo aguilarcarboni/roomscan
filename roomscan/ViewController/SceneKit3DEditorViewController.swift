@@ -14,6 +14,12 @@ enum EditorState {
     // Future states can be added here (e.g., .materialEditor, .animationMode, etc.)
 }
 
+extension SCNVector3: Equatable {
+    public static func == (lhs: SCNVector3, rhs: SCNVector3) -> Bool {
+        return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z
+    }
+}
+
 
 class SceneKit3DEditorViewController: UIViewController, UIDocumentPickerDelegate {
     

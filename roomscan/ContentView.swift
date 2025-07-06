@@ -1,73 +1,116 @@
 //
 //  ContentView.swift
-//  roomplan
+//  media
 //
-//  Created by Andrés on 5/4/2025.
+//  Created by Andrés on 28/6/2025.
 //
 
 import SwiftUI
+import SwiftData
+import CloudKit
 import RoomPlan
-import ARKit
-
-struct ScanInfo: Identifiable {
-    let id = UUID()
-    let directoryURL: URL
-}
 
 struct ContentView: View {
     
-    @State private var scanInfoForSheet: ScanInfo?
-    @State private var capturedRooms: [CapturedRoom] = []
+    @Environment(\.modelContext) private var modelContext
+    @Query private var wishListItems: [WishListItem]
+    @StateObject private var cloudKitManager = CloudKitManager.shared
     
-    var body: some View {
-        TabView {
-            // Scan / Documents tab
-            DocumentBrowserView(onStartScan: { directoryURL in
-                self.scanInfoForSheet = ScanInfo(directoryURL: directoryURL)
-            })
-            .ignoresSafeArea(edges: .bottom)
-            .tabItem {
-                Label("Scan", systemImage: "camera.viewfinder")
-            }
+    @State private var showingCreateSheet = false
+    @State private var showingImportSheet = false
+    @State private var selectedWishListItem: WishListItem?
+    @State private var showingWishListItemDetail = false
+    @State private var selectedSidebarItem: SidebarItem? = .wishList
 
-            // Wish List tab
-            WishlistContentView()
-                .tabItem {
-                    Label("Wish List", systemImage: "heart")
+    var body: some View {
+        NavigationSplitView {
+            // Sidebar - selectable list of media types
+            List(selection: $selectedSidebarItem) {
+                Section {
+                    ForEach(SidebarItem.allCases, id: \.self) { item in
+                        Label(item.rawValue, systemImage: item.systemImage)
+                    }
                 }
-        }
-        // Present the scanning sheet from whichever tab is active
-        .sheet(item: $scanInfoForSheet) { info in
-            RoomScanningView(
-                scanDirectoryURL: info.directoryURL,
-                onScanComplete: { capturedRoom, usdzURL, metadataURL in
-                    print("ContentView: ✅ Scan complete - files imported to RoomScan app space")
-                    self.capturedRooms.append(capturedRoom)
-                    self.scanInfoForSheet = nil
-                }
-            )
-        }
-    }
-    
-    private func isDeviceSupported() -> Bool {
-        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-            return true
-        }
-        return false
-    }
-    
-    private func checkCameraPermission(completion: @escaping (Bool) -> Void) {
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized:
-            completion(true)
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .video) { granted in
-                DispatchQueue.main.async {
-                    completion(granted)
+                
+                Section("Sync Status") {
+                    HStack {
+                        Image(systemName: cloudKitManager.isSignedInToiCloud ? "icloud.fill" : "icloud.slash")
+                            .foregroundColor(cloudKitManager.isSignedInToiCloud ? .blue : .gray)
+                        
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(cloudKitManager.isSignedInToiCloud ? "iCloud Connected" : "iCloud Disconnected")
+                                .font(.caption)
+                                .fontWeight(.medium)
+                            
+                            Text(cloudKitManager.syncStatus.description)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        Spacer()
+                        
+                        if case .syncing = cloudKitManager.syncStatus {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                        }
+                    }
+                    .onTapGesture {
+                        Task {
+                            await cloudKitManager.forceSyncNow()
+                        }
+                    }
                 }
             }
-        default:
-            completion(false)
+            .listStyle(.sidebar)
+            .navigationTitle("Wish List")
+            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 250)
+
+        } detail: {
+            switch selectedSidebarItem {
+                case .wishList:
+                    WishListView(
+                        wishListItems: wishListItems,
+                    )
+                case .scan:
+                    ScansView()
+                case .none:
+                    VStack(spacing: 16) {
+                        Image(systemName: "sidebar.left")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        
+                        Text("Select a category from the sidebar")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .cloudKitStatusAlert()
+        .task {
+            await cloudKitManager.checkCloudKitStatus()
         }
     }
+}
+
+enum SidebarItem: String, CaseIterable, Identifiable {
+    case wishList = "Wish List"
+    case scan = "Scan"
+    
+    var id: String { self.rawValue }
+    
+    var systemImage: String {
+        switch self {
+        case .wishList:
+            return "heart"
+        case .scan:
+            return "camera.viewfinder"
+        }
+    }
+}
+
+// Conform URL to Identifiable for SwiftUI's .sheet(item:)
+extension URL: Identifiable {
+    public var id: String { absoluteString }
 }
