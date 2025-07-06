@@ -20,7 +20,7 @@ struct ContentView: View {
     @State private var showingImportSheet = false
     @State private var selectedWishListItem: WishListItem?
     @State private var showingWishListItemDetail = false
-    @State private var selectedSidebarItem: SidebarItem? = .wishList
+    @State private var selectedSidebarItem: SidebarItem? = nil
 
     var body: some View {
         NavigationSplitView {

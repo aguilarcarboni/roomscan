@@ -5,10 +5,8 @@ struct ScansView: View {
     // List of found USDZ files
     @State private var scanFiles: [URL] = []
 
-    // Sheet states
-    @State private var isPresentingScanner = false
+    // Sheet state – the sheet will present automatically when this becomes non-nil
     @State private var currentScanDirectoryURL: URL?
-    @State private var selectedScanURL: URL?
 
     var body: some View {
         VStack {
@@ -25,13 +23,9 @@ struct ScansView: View {
                 Spacer()
             } else {
                 List(scanFiles, id: \.self) { url in
-                    Button {
-                        selectedScanURL = url
-                    } label: {
-                        HStack {
-                            Image(systemName: "square.3.layers.3d.down.right")
-                            Text(url.deletingPathExtension().lastPathComponent)
-                        }
+                    HStack {
+                        Image(systemName: "square.3.layers.3d.down.right")
+                        Text(url.deletingPathExtension().lastPathComponent)
                     }
                 }
             }
@@ -45,22 +39,15 @@ struct ScansView: View {
             }
         }
         // Room scanning sheet
-        .sheet(isPresented: $isPresentingScanner) {
-            if let dirURL = currentScanDirectoryURL {
-                RoomScanningView(
-                    scanDirectoryURL: dirURL,
-                    onScanComplete: { _, _, _ in
-                        isPresentingScanner = false
-                        loadScans() // refresh list with newly saved files
-                    }
-                )
-            }
-        }
-        // Existing scan preview sheet
-        .sheet(item: $selectedScanURL) { url in
-            SceneKit3DEditorView(modelURL: url) {
-                selectedScanURL = nil
-            }
+        .sheet(item: $currentScanDirectoryURL) { dirURL in
+            RoomScanningView(
+                scanDirectoryURL: dirURL,
+                onScanComplete: { _, _, _ in
+                    // Dismiss the sheet and refresh the list
+                    currentScanDirectoryURL = nil
+                    loadScans()
+                }
+            )
         }
         .onAppear {
             loadScans()
@@ -77,8 +64,8 @@ struct ScansView: View {
         let targetDir = documentsURL.appendingPathComponent(folderName, isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
+            // Setting this URL will trigger the sheet to present
             currentScanDirectoryURL = targetDir
-            isPresentingScanner = true
         } catch {
             print("ScansView: ❌ Failed to create scan directory: \(error)")
         }
