@@ -12,6 +12,18 @@ struct WishListView: View {
     let wishListItems: [WishListItem]
     @Environment(\.modelContext) private var modelContext
     @State private var showingCreateItem = false
+    @State private var searchText = ""
+    
+    // Computed property to filter items based on search text
+    private var filteredItems: [WishListItem] {
+        if searchText.isEmpty {
+            return wishListItems
+        } else {
+            return wishListItems.filter { item in
+                item.name.localizedCaseInsensitiveContains(searchText)
+            }
+        }
+    }
     
     var body: some View {
         NavigationStack {
@@ -23,14 +35,17 @@ struct WishListView: View {
                         systemImage: "heart",
                         description: Text("Add items to your wish list or import from CSV")
                     )
+                } else if filteredItems.isEmpty && !searchText.isEmpty {
+                    // No search results
+                    ContentUnavailableView.search
                 } else {
                     VStack(spacing: 0) {
                         List {
-                            ForEach(wishListItems) { item in
+                            ForEach(filteredItems) { item in
                                 WishListItemView(item: item)
                             }
                             .onDelete(perform: deleteItems)
-                            Text("Total items: \(wishListItems.count)")
+                            Text("Total items: \(filteredItems.count)" + (!searchText.isEmpty ? " of \(wishListItems.count)" : ""))
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .padding(.vertical, 8)
@@ -38,6 +53,7 @@ struct WishListView: View {
                     }
                 }
             }
+            .searchable(text: $searchText)
             .navigationTitle("Wish List")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -59,7 +75,7 @@ struct WishListView: View {
     private func deleteItems(offsets: IndexSet) {
         withAnimation {
             for index in offsets {
-                let item = wishListItems[index]
+                let item = filteredItems[index]
                 modelContext.delete(item)
             }
             
